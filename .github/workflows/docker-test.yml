@@ -1,0 +1,21 @@
+# Docker paketinin derlenip çalıştığını doğrular (gizli anahtar gerekmez, veritabanına yazmaz).
+name: docker-test
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths: ["Dockerfile", ".dockerignore", "requirements.txt", "muzikarsiv/**"]
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+      - name: Paketi derle
+        run: docker build -t muzikarsiv .
+      - name: Kurulum kontrolü (paket içinde)
+        run: docker run --rm muzikarsiv check
+      - name: Gerçek şarkı analizi (paket içinde, veritabanına yazmadan)
+        run: docker run --rm -e MB_USER_AGENT="MuzikArsivi/0.2 ( https://github.com/sacredsan/muzik-arsivi )" muzikarsiv analyze 3135556 --no-db
