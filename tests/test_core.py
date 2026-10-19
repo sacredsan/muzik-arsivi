@@ -224,6 +224,9 @@ class TestAgent(unittest.TestCase):
             def pending_count(self):
                 return pending
 
+            def outdated_songs(self, version, limit):
+                return []
+
             def complete_job(self, jid, note=None):
                 self.log.append(("complete", jid, note))
 
@@ -305,6 +308,34 @@ class TestAgent(unittest.TestCase):
         self.assertTrue(artist_matches("Bob Marley", "Bob Marley & The Wailers"))
         self.assertFalse(artist_matches("Mabel Matiz", "Mert Demir"))
         self.assertFalse(artist_matches("Adele", "The Drum & Bass Remixers"))
+
+
+class TestSearchAndMoodFixes(unittest.TestCase):
+    def test_skips_remix(self):
+        from types import SimpleNamespace
+        from muzikarsiv.pipeline import find_track
+
+        class DZ:
+            def search(self, q, limit):
+                return [{"id": 1, "title": "Everyway That I Can (Special Bubbling Mix)", "preview": "p",
+                         "artist": {"name": "Sertab Erener"}},
+                        {"id": 2, "title": "Everyway That I Can", "preview": "p",
+                         "artist": {"name": "Sertab Erener"}}]
+        hit = find_track(SimpleNamespace(deezer=DZ()), "Sertab Erener", "Everyway That I Can")
+        self.assertEqual(hit["id"], 2)
+
+    def test_low_vote_moods_survive(self):
+        from muzikarsiv.sources.tags import CombinedTags, split_tags
+
+        class LF:
+            name = "lf"
+
+            def get_tags(self, *a):  # Last.fm tipik dağılım: türler çok oy, mood'lar az oy
+                return {"pop": 1.0, "turkish pop": 0.6, "sad": 0.05, "melancholic": 0.04}
+        tags = CombinedTags([LF()], [1.0]).get_tags("a", "b", None)
+        sub, moods = split_tags(tags, "a")
+        self.assertEqual(moods, {"sad": 0.05})
+        self.assertEqual(sub, ["pop", "turkish pop"])
 
 
 class TestStage2Features(unittest.TestCase):

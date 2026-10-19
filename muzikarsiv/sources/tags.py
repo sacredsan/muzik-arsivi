@@ -56,16 +56,23 @@ def is_blacklisted(name: str) -> bool:
     return not key or key in BLACKLIST or norm(key) in BLACKLIST or len(key) > 40
 
 
-def clean_tags(raw: dict[str, float]) -> dict[str, float]:
-    """Kara liste, küçük harf, tekilleştirme, eşik ve en çok MAX_TAGS etiket."""
+# Kaynaklardan gelen ham etiketler için daha düşük eşik: mood etiketleri genelde az oy alır,
+# bu yüzden ilk elemede kaybolmamalı. Görüntülenen/saklanan liste yine MIN_WEIGHT ile süzülür.
+RAW_MIN_WEIGHT = 0.02
+RAW_MAX_TAGS = 80
+
+
+def clean_tags(raw: dict[str, float], min_weight: float = MIN_WEIGHT,
+               max_tags: int = MAX_TAGS) -> dict[str, float]:
+    """Kara liste, küçük harf, tekilleştirme, eşik ve en çok max_tags etiket."""
     out: dict[str, float] = {}
     for name, w in raw.items():
         key = name.strip().lower()
         if is_blacklisted(key):
             continue
-        if w >= MIN_WEIGHT:
+        if w >= min_weight:
             out[key] = round(max(out.get(key, 0), min(1.0, w)), 3)
-    return dict(sorted(out.items(), key=lambda kv: -kv[1])[:MAX_TAGS])
+    return dict(sorted(out.items(), key=lambda kv: -kv[1])[:max_tags])
 
 
 GENRE_VOCAB |= {
@@ -112,7 +119,7 @@ def split_tags(tags: dict[str, float], artist: str = "") -> tuple[list[str], dic
     (hepsi ham olarak 'tags' sütununda saklanır, ileride yeniden işlenebilir).
     """
     artist_n = norm(artist, strip_extras=False)
-    sub_genres = [t for t in tags if t in GENRE_VOCAB]
+    sub_genres = [t for t in clean_tags(tags) if t in GENRE_VOCAB]  # alt türler: yalnız güçlü etiketler
     moods: dict[str, float] = {}
     for t, w in tags.items():
         if t in NON_MOOD or (artist_n and norm(t, strip_extras=False) == artist_n):
@@ -148,7 +155,7 @@ class MusicBrainzTags:
         if not useful:
             return {}
         top = max(useful.values())
-        return clean_tags({t: c / top for t, c in useful.items()})
+        return clean_tags({t: c / top for t, c in useful.items()}, RAW_MIN_WEIGHT, RAW_MAX_TAGS)
 
 
 class LastFmTags:
@@ -193,7 +200,7 @@ class LastFmTags:
                 out[name] = max(out.get(name, 0.0), w * self.ARTIST_WEIGHT)
         except (RetryableError, requests.RequestException) as e:
             log.warning("Last.fm atlandı: %s", e)
-        return clean_tags(out)
+        return clean_tags(out, RAW_MIN_WEIGHT, RAW_MAX_TAGS)
 
 
 class CombinedTags:
@@ -208,7 +215,7 @@ class CombinedTags:
         for p, w in zip(self.providers, self.weights):
             for t, v in p.get_tags(artist, title, mb).items():
                 out[t] = max(out.get(t, 0.0), v * w)
-        return clean_tags(out)
+        return clean_tags(out, RAW_MIN_WEIGHT, RAW_MAX_TAGS)
 
 
 def make_tag_provider(kind: str, lastfm_api_key: str = "") -> TagProvider:

@@ -6,7 +6,8 @@ Her çalıştırma (GitHub Actions, Cloud Run veya yerel) bir "tur"dur:
   3. her iş: tekrar kontrolü -> analiz -> kayıt -> sanatçı taraması
   4. hata: geçici ise geri çekilmeyle tekrar, kalıcı ise doğrudan 'failed' (DLQ)
   5. zaman sınırı dolarsa kalan işler deneme hakkı yemeden kuyruğa iade edilir
-  6. worker_runs'a özet
+  6. vakit kalırsa eski analiz sürümündeki birkaç şarkı yeniden analiz edilir
+  7. worker_runs'a özet
 """
 
 from __future__ import annotations
@@ -15,6 +16,7 @@ import logging
 import time
 from dataclasses import dataclass, field
 
+from . import ANALYSIS_VERSION
 from .pipeline import Services, crawl_artist, find_track, process_track
 from .ratelimit import CircuitOpen
 from .sources import PermanentError
@@ -29,11 +31,12 @@ class RunStats:
     skipped: int = 0
     crawled: int = 0
     released: int = 0
+    reanalyzed: int = 0
     errors: list[str] = field(default_factory=list)
 
     def summary(self) -> str:
         s = (f"işlenen={self.processed} atlanan={self.skipped} hatalı={self.failed} "
-             f"kuyruğa_eklenen={self.crawled} iade={self.released}")
+             f"kuyruğa_eklenen={self.crawled} iade={self.released} yeniden_analiz={self.reanalyzed}")
         if self.errors:
             s += " | hatalar: " + " ; ".join(self.errors[:5])
         return s
@@ -62,10 +65,25 @@ def run_batch(svc: Services, batch_size: int | None = None, budget_sec: float | 
                 log.info("Zaman sınırı: %d iş kuyruğa iade edildi", stats.released)
                 break
             _process_job(svc, job, stats, crawl_allowed)
+        _reanalyze_outdated(svc, stats, t0, budget_sec)
     finally:
         svc.db.finish_run(run_id, stats.processed, stats.failed, stats.skipped, stats.summary())
     log.info("Tur bitti (%.0f sn): %s", time.monotonic() - t0, stats.summary())
     return stats
+
+
+def _reanalyze_outdated(svc: Services, stats: RunStats, t0: float, budget_sec: float, limit: int = 10) -> None:
+    """Analiz yöntemi geliştikçe eski kayıtları her turda birkaçar birkaçar yeniler."""
+    if time.monotonic() - t0 > budget_sec * 0.8:
+        return
+    for did in svc.db.outdated_songs(ANALYSIS_VERSION, limit):
+        if time.monotonic() - t0 > budget_sec:
+            break
+        try:
+            process_track(svc, did, source=None, skip_duplicates=False)
+            stats.reanalyzed += 1
+        except Exception as e:  # noqa: BLE001
+            log.warning("Yeniden analiz atlandı (%s): %s", did, e)
 
 
 def _process_job(svc: Services, job: dict, stats: RunStats, crawl_allowed: bool) -> None:

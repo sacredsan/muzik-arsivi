@@ -15,7 +15,7 @@ from .db import SupabaseDB
 from .normalize import norm, norm_artist
 from .sources.deezer import DeezerClient
 from .sources.musicbrainz import MusicBrainzClient
-from .sources.tags import TagProvider, make_tag_provider, split_tags
+from .sources.tags import TagProvider, clean_tags, make_tag_provider, split_tags
 
 log = logging.getLogger(__name__)
 
@@ -40,7 +40,7 @@ class Services:
 
 
 def build_row(track: dict, genre: str | None, analysis, mb, tags: dict, tag_source: str,
-              source: str) -> dict:
+              source: str | None) -> dict:
     artist = (track.get("artist") or {})
     title = track.get("title") or track.get("title_short") or ""
     artist_name = artist.get("name") or ""
@@ -63,7 +63,7 @@ def build_row(track: dict, genre: str | None, analysis, mb, tags: dict, tag_sour
         "genre": genre,
         "sub_genres": sub_genres,
         "mood_tags": moods,
-        "tags": tags,
+        "tags": clean_tags(tags),  # saklanan: güçlü etiketler (mood'lar düşük oylu olanlardan da çıkarılır)
         "tag_source": tag_source,
         "cultural_context": culture,
         "culture_reason": reason,
@@ -83,11 +83,12 @@ def build_row(track: dict, genre: str | None, analysis, mb, tags: dict, tag_sour
         "feature_vec": "[" + ",".join(f"{x:.4f}" for x in a["feature_vec"]) + "]",
         "analyzer": a["analyzer"],
         "analysis_version": a["analysis_version"],
-        "source": source,
+        **({"source": source} if source else {}),  # yeniden analizde ilk kaynak korunur
     }
 
 
-def process_track(svc: Services, deezer_id: int, source: str = "seed", skip_duplicates: bool = True) -> dict:
+def process_track(svc: Services, deezer_id: int, source: str | None = "seed",
+                  skip_duplicates: bool = True) -> dict:
     """Şarkıyı işler ve (varsa) veritabanına yazar. Dönüş: {'status': ..., 'row': ...}"""
     t0 = time.monotonic()
     track = svc.deezer.track(deezer_id)
@@ -126,8 +127,18 @@ def artist_matches(wanted: str, found: str) -> bool:
     return bool(w and f) and (w == f or w in f or f in w)
 
 
+# Aranan başlıkta yoksa sonuçta da istemediğimiz sürüm kelimeleri
+_VERSION_WORDS = ("remix", "mix", "edit", "version", "live", "acoustic", "akustik", "karaoke",
+                  "instrumental", "cover", "tribute", "sped up", "slowed", "canli", "remastered live")
+
+
+def _is_unwanted_version(found_title_n: str, wanted_title_n: str) -> bool:
+    return any(f" {w} " in f" {found_title_n} " and f" {w} " not in f" {wanted_title_n} "
+               for w in _VERSION_WORDS)
+
+
 def find_track(svc: Services, artist: str, title: str) -> dict | None:
-    """Deezer'da sanatçısı EŞLEŞEN ve önizlemesi olan sonucu bulur (remix/cover'a düşmemek için)."""
+    """Deezer'da sanatçısı EŞLEŞEN ve önizlemesi olan sonucu bulur (remix/cover/canlıya düşmemek için)."""
     hits = svc.deezer.search(f'artist:"{artist}" track:"{title}"', limit=10) or \
         svc.deezer.search(f"{artist} {title}", limit=15)
     title_n = norm(title)
@@ -136,6 +147,8 @@ def find_track(svc: Services, artist: str, title: str) -> dict | None:
         if not h.get("preview") or not artist_matches(artist, (h.get("artist") or {}).get("name", "")):
             continue
         h_title = norm(h.get("title", ""))
+        if _is_unwanted_version(norm(h.get("title", ""), strip_extras=False), norm(title, strip_extras=False)):
+            continue
         if h_title == title_n:
             return h
         if best is None and (title_n in h_title or h_title in title_n):

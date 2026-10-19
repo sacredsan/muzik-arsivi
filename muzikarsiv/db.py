@@ -51,6 +51,13 @@ class SupabaseDB:
         return self.rpc("find_duplicate", p_isrc=isrc, p_title_norm=title_norm,
                         p_artist_norm=artist_norm, p_duration=duration)
 
+    def outdated_songs(self, version: int, limit: int) -> list[int]:
+        """Eski analiz sürümüyle kaydedilmiş şarkıların deezer_id'leri (yeniden analiz için)."""
+        r = self.s.get(f"{self.base}/songs", timeout=30,
+                       params={"analysis_version": f"lt.{version}", "select": "deezer_id",
+                               "order": "analysis_version.asc,created_at.asc", "limit": str(limit)})
+        return [x["deezer_id"] for x in self._check(r) or []]
+
     # ---- kuyruk
     def claim_jobs(self, n: int, worker: str) -> list[dict]:
         return self.rpc("claim_jobs", n=n, worker=worker) or []
