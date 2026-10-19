@@ -1,0 +1,51 @@
+# Bulutta (Ubuntu) essentia kurulumu + testler + motor karşılaştırması.
+# Elle çalıştırma: GitHub > Actions > essentia-test > Run workflow
+# Kod değişince de otomatik çalışır. Veritabanına YAZMAZ, gizli anahtar gerektirmez.
+name: essentia-test
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - "muzikarsiv/**"
+      - "tests/**"
+      - "scripts/compare_engines.py"
+      - "requirements.txt"
+      - ".github/workflows/essentia-test.yml"
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      PYTHONUTF8: "1"
+      MB_USER_AGENT: "MuzikArsivi/0.1 ( https://github.com/sacredsan/muzik-arsivi )"
+      TAG_PROVIDER: musicbrainz
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: ffmpeg kur
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg
+
+      - name: Python paketleri + essentia + librosa
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt essentia librosa
+          python -c "import essentia; print('essentia', essentia.__version__)"
+
+      - name: Birim testleri
+        run: python -m unittest discover tests -v
+
+      - name: Kurulum kontrolü
+        run: python -m muzikarsiv check
+
+      - name: essentia vs librosa karşılaştırması
+        run: |
+          echo "## Analiz motoru karşılaştırması" >> "$GITHUB_STEP_SUMMARY"
+          python scripts/compare_engines.py | tee -a "$GITHUB_STEP_SUMMARY"
