@@ -145,13 +145,31 @@ def cmd_seed(args, cfg) -> int:
 
 
 def cmd_run(args, cfg) -> int:
+    import time
+
     from .agent import run_batch
     from .pipeline import Services
 
-    stats = run_batch(Services.build(cfg), batch_size=args.batch, budget_sec=args.budget,
-                      crawl=not args.no_crawl)
-    print(stats.summary())
-    return 0
+    if not args.loop:
+        stats = run_batch(Services.build(cfg), batch_size=args.batch, budget_sec=args.budget,
+                          crawl=not args.no_crawl)
+        print(stats.summary())
+        return 0
+
+    # Sürekli mod (Oracle VM gibi hep açık sunucular için): tur bitince yenisine başlar.
+    # Kuyruk boşsa veya hata olursa bir süre bekler; hiçbir hata döngüyü durdurmaz.
+    log = logging.getLogger("muzikarsiv.loop")
+    while True:
+        try:
+            stats = run_batch(Services.build(cfg), batch_size=args.batch, budget_sec=args.budget,
+                              crawl=not args.no_crawl)
+            idle = stats.processed + stats.skipped + stats.failed == 0
+        except Exception as e:  # noqa: BLE001
+            log.error("Tur hatası (döngü devam ediyor): %s", e)
+            idle = True
+        if idle:
+            log.info("Yapılacak iş yok ya da hata oldu; %d sn bekleniyor", args.sleep)
+            time.sleep(args.sleep)
 
 
 def main(argv=None) -> int:
@@ -178,6 +196,8 @@ def main(argv=None) -> int:
     r.add_argument("--batch", type=int, default=None, help="en fazla iş sayısı (varsayılan BATCH_SIZE)")
     r.add_argument("--budget", type=float, default=None, help="en uzun süre, saniye (varsayılan RUN_BUDGET_SEC)")
     r.add_argument("--no-crawl", action="store_true", help="yeni sanatçı taraması yapma")
+    r.add_argument("--loop", action="store_true", help="sürekli çalış (hep açık sunucular için)")
+    r.add_argument("--sleep", type=int, default=300, help="sürekli modda boş kalınca bekleme, saniye")
 
     args = p.parse_args(argv)
     for stream in (sys.stdout, sys.stderr):  # Windows konsolunda Türkçe karakter sorunu olmasın

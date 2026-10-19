@@ -1,0 +1,16 @@
+# İmaja girmeyecekler (özellikle gizli bilgiler)
+.env
+.env.*
+!.env.example
+şifreler ve apiler/
+*_log.txt
+.git/
+.github/
+.venv/
+__pycache__/
+*.pyc
+*.mp3
+*.wav
+tests/
+*.bat
+*.ps1
