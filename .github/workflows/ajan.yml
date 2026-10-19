@@ -1,0 +1,66 @@
+# Bulut ajanı: her 15 dakikada bir kuyruktan şarkı alır, essentia ile analiz eder, Supabase'e yazar.
+# Elle çalıştırma: GitHub > Actions > ajan > Run workflow
+#   (ilk seferde "seed" kutusunu işaretleyin: başlangıç şarkı listesi kuyruğa eklenir)
+# Gerekli GitHub Secrets: SUPABASE_URL, SUPABASE_SERVICE_KEY, LASTFM_API_KEY
+name: ajan
+
+on:
+  schedule:
+    - cron: "7,22,37,52 * * * *"   # 15 dakikada bir (tam saatlerin yoğunluğundan kaçınmak için :07'den)
+  workflow_dispatch:
+    inputs:
+      seed:
+        description: "Başlangıç listesini (scripts/seed.csv) kuyruğa ekle"
+        type: boolean
+        default: false
+      batch:
+        description: "Bu turda en fazla kaç şarkı işlensin"
+        type: string
+        default: "30"
+
+concurrency:
+  group: ajan          # aynı anda tek tur: üst üste binmesin
+  cancel-in-progress: false
+
+jobs:
+  run:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    env:
+      PYTHONUTF8: "1"
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+      LASTFM_API_KEY: ${{ secrets.LASTFM_API_KEY }}
+      TAG_PROVIDER: auto
+      ANALYZER: essentia
+      WORKER_NAME: gha-${{ github.run_id }}
+      MB_USER_AGENT: "MuzikArsivi/0.2 ( https://github.com/sacredsan/muzik-arsivi )"
+      RUN_BUDGET_SEC: "720"
+    steps:
+      - name: Gizli ayarlar var mı?
+        if: env.SUPABASE_SERVICE_KEY == ''
+        run: echo "::warning::SUPABASE_SERVICE_KEY tanımlı değil (Settings > Secrets). Bu tur atlandı."
+
+      - uses: actions/checkout@v5
+        if: env.SUPABASE_SERVICE_KEY != ''
+
+      - uses: actions/setup-python@v6
+        if: env.SUPABASE_SERVICE_KEY != ''
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: ffmpeg + paketler + essentia
+        if: env.SUPABASE_SERVICE_KEY != ''
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg
+          pip install -q -r requirements.txt essentia
+          python -m muzikarsiv check
+
+      - name: Başlangıç listesi (seed)
+        if: env.SUPABASE_SERVICE_KEY != '' && inputs.seed
+        run: python -m muzikarsiv seed scripts/seed.csv
+
+      - name: Ajan turu
+        if: env.SUPABASE_SERVICE_KEY != ''
+        run: python -m muzikarsiv run --batch "${{ inputs.batch || '30' }}"
