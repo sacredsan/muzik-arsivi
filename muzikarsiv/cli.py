@@ -5,6 +5,8 @@
   python -m muzikarsiv analyze 3135556       # tek şarkıyı analiz et ve Supabase'e yaz
   python -m muzikarsiv analyze 3135556 --no-db
   python -m muzikarsiv analyze-file sarki.mp3   # internetsiz: yerel dosyayı analiz et
+  python -m muzikarsiv seed scripts/seed.csv     # başlangıç şarkılarını kuyruğa ekle
+  python -m muzikarsiv run                       # kuyruktan bir tur iş işle (toplu ajan)
 """
 
 from __future__ import annotations
@@ -23,8 +25,9 @@ from .config import load_config
 
 def _print_row(row: dict) -> None:
     show = ["track_name", "artist_name", "genre", "sub_genres", "cultural_context", "culture_reason",
-            "bpm", "bpm_conf", "musical_key", "key_scale", "camelot", "key_conf", "energy",
-            "mood_tags", "isrc", "mbid", "artist_country", "analyzer"]
+            "bpm", "bpm_raw", "bpm_conf", "musical_key", "key_scale", "camelot", "key_conf", "energy",
+            "danceability", "mood_valence", "mood_arousal", "mood_tags", "tags", "isrc", "mbid",
+            "artist_country", "analyzer"]
     for k in show:
         if k in row:
             v = row[k]
@@ -36,6 +39,9 @@ def _describe_key(key: str) -> str:
     if not key:
         return "BOŞ  <-- .env'deki SUPABASE_SERVICE_KEY satırını doldurun"
     if key.startswith("sb_secret_"):
+        if len(key) < 30:
+            return (f"yeni gizli anahtar ama sadece {len(key)} karakter  <-- EKSİK kopyalanmış: "
+                    "Supabase'deki kopyala düğmesini kullanın")
         return f"yeni gizli anahtar (sb_secret_...), {len(key)} karakter  [doğru tür]"
     if key.startswith("sb_publishable_"):
         return "publishable anahtar  <-- YANLIŞ TÜR: 'Secret keys' bölümündeki anahtar gerekli"
@@ -62,6 +68,11 @@ def cmd_check(args, cfg) -> int:
     ok &= bool(shutil.which("ffmpeg"))
     print(f"  analiz motorları {', '.join(backends.available())} (seçilen: {backends.pick(cfg.analyzer)})")
     print(f"  etiket kaynağı   {cfg.tag_provider}")
+    lf = cfg.lastfm_api_key
+    print(f"  Last.fm anahtarı {'VAR (' + str(len(lf)) + ' karakter)' if lf else 'yok'}"
+          + ("  <-- 32 karakter olmalı, eksik/fazla kopyalanmış olabilir" if lf and len(lf) != 32 else ""))
+    if lf and cfg.tag_provider == "musicbrainz":
+        print("  UYARI            Last.fm anahtarı var ama kullanılmıyor: .env'de TAG_PROVIDER=auto yapın")
     print(f"  işçi adı         {cfg.worker_name}")
     print(f"  Supabase adresi  {cfg.supabase_url or '(boş)'}")
     print(f"  Supabase anahtarı {_describe_key(cfg.supabase_service_key)}")
@@ -120,6 +131,29 @@ def cmd_analyze_file(args, cfg) -> int:
     return 0
 
 
+def cmd_seed(args, cfg) -> int:
+    from .agent import seed_from_csv
+    from .pipeline import Services
+
+    res = seed_from_csv(Services.build(cfg), args.csv, priority=args.priority)
+    print(f"Bulunan: {res['bulunan']}  Kuyruğa eklenen: {res['kuyruğa_eklenen']}")
+    if res["bulunamayan"]:
+        print("Deezer'da bulunamayanlar:")
+        for m in res["bulunamayan"]:
+            print(f"  - {m}")
+    return 0
+
+
+def cmd_run(args, cfg) -> int:
+    from .agent import run_batch
+    from .pipeline import Services
+
+    stats = run_batch(Services.build(cfg), batch_size=args.batch, budget_sec=args.budget,
+                      crawl=not args.no_crawl)
+    print(stats.summary())
+    return 0
+
+
 def main(argv=None) -> int:
     p = argparse.ArgumentParser(prog="muzikarsiv", description="Müzik arşivi analiz ajanı")
     p.add_argument("-v", "--verbose", action="store_true", help="ayrıntılı günlük")
@@ -137,6 +171,13 @@ def main(argv=None) -> int:
     f = sub.add_parser("analyze-file", help="yerel ses dosyasını analiz et (internetsiz)")
     f.add_argument("path")
     f.add_argument("--json", action="store_true")
+    sd = sub.add_parser("seed", help="CSV'deki şarkıları kuyruğa ekle")
+    sd.add_argument("csv")
+    sd.add_argument("--priority", type=int, default=5)
+    r = sub.add_parser("run", help="kuyruktan bir tur iş işle")
+    r.add_argument("--batch", type=int, default=None, help="en fazla iş sayısı (varsayılan BATCH_SIZE)")
+    r.add_argument("--budget", type=float, default=None, help="en uzun süre, saniye (varsayılan RUN_BUDGET_SEC)")
+    r.add_argument("--no-crawl", action="store_true", help="yeni sanatçı taraması yapma")
 
     args = p.parse_args(argv)
     for stream in (sys.stdout, sys.stderr):  # Windows konsolunda Türkçe karakter sorunu olmasın
@@ -144,11 +185,11 @@ def main(argv=None) -> int:
             stream.reconfigure(encoding="utf-8")
         except (AttributeError, ValueError):
             pass
-    logging.basicConfig(level=logging.INFO if args.verbose else logging.WARNING,
+    logging.basicConfig(level=logging.INFO if (args.verbose or args.cmd == "run") else logging.WARNING,
                         format="%(asctime)s %(levelname)s %(name)s: %(message)s")
     cfg = load_config()
     handlers = {"check": cmd_check, "search": cmd_search, "analyze": cmd_analyze,
-                "analyze-file": cmd_analyze_file}
+                "analyze-file": cmd_analyze_file, "seed": cmd_seed, "run": cmd_run}
     try:
         return handlers[args.cmd](args, cfg)
     except Exception as e:  # noqa: BLE001

@@ -1,4 +1,5 @@
-"""Bir şarkının baştan sona işlenmesi: Deezer -> analiz -> etiket -> kültür -> veritabanı satırı."""
+"""Bir şarkının baştan sona işlenmesi: Deezer -> analiz -> etiket -> kültür -> veritabanı satırı.
+Ayrıca: sanatçı eşleşmeli Deezer araması ve ilgili sanatçı taraması (crawl)."""
 
 from __future__ import annotations
 
@@ -44,7 +45,7 @@ def build_row(track: dict, genre: str | None, analysis, mb, tags: dict, tag_sour
     title = track.get("title") or track.get("title_short") or ""
     artist_name = artist.get("name") or ""
     culture, reason = decide_culture(mb.artist_country if mb else None, tags, title, artist_name)
-    sub_genres, moods = split_tags(tags)
+    sub_genres, moods = split_tags(tags, artist_name)
     a = analysis.to_dict()
     return {
         "deezer_id": int(track["id"]),
@@ -62,17 +63,22 @@ def build_row(track: dict, genre: str | None, analysis, mb, tags: dict, tag_sour
         "genre": genre,
         "sub_genres": sub_genres,
         "mood_tags": moods,
+        "tags": tags,
         "tag_source": tag_source,
         "cultural_context": culture,
         "culture_reason": reason,
         "artist_country": mb.artist_country if mb else None,
         "bpm": a["bpm"],
+        "bpm_raw": a["bpm_raw"],
         "bpm_conf": a["bpm_conf"],
         "musical_key": a["musical_key"],
         "key_scale": a["key_scale"],
         "key_conf": a["key_conf"],
         "camelot": a["camelot"],
         "energy": a["energy"],
+        "danceability": a["danceability"],
+        "mood_valence": a["mood_valence"],
+        "mood_arousal": a["mood_arousal"],
         # pgvector PostgREST üzerinden '[0.1,0.2,...]' metni olarak gönderilir
         "feature_vec": "[" + ",".join(f"{x:.4f}" for x in a["feature_vec"]) + "]",
         "analyzer": a["analyzer"],
@@ -93,7 +99,7 @@ def process_track(svc: Services, deezer_id: int, source: str = "seed", skip_dupl
         dup = svc.db.find_duplicate(track.get("isrc"), norm(title), norm_artist(artist_name),
                                     track.get("duration"))
         if dup:
-            return {"status": "duplicate", "song_id": dup}
+            return {"status": "duplicate", "song_id": dup, "track": track}
 
     genre = svc.deezer.album_genre((track.get("album") or {}).get("id"))
     mp3 = svc.deezer.download_preview(track.get("preview"))
@@ -111,4 +117,47 @@ def process_track(svc: Services, deezer_id: int, source: str = "seed", skip_dupl
         saved = svc.db.upsert_song(row)
         row["id"] = saved.get("id")
         status = "saved"
-    return {"status": status, "seconds": round(time.monotonic() - t0, 1), "row": row}
+    return {"status": status, "seconds": round(time.monotonic() - t0, 1), "row": row, "track": track}
+
+
+def artist_matches(wanted: str, found: str) -> bool:
+    """'Tarkan' ~ 'Tarkan', 'Mabel Matiz' !~ 'Mert Demir'. feat./ortak sanatçılara toleranslı."""
+    w, f = norm_artist(wanted), norm_artist(found)
+    return bool(w and f) and (w == f or w in f or f in w)
+
+
+def find_track(svc: Services, artist: str, title: str) -> dict | None:
+    """Deezer'da sanatçısı EŞLEŞEN ve önizlemesi olan sonucu bulur (remix/cover'a düşmemek için)."""
+    hits = svc.deezer.search(f'artist:"{artist}" track:"{title}"', limit=10) or \
+        svc.deezer.search(f"{artist} {title}", limit=15)
+    title_n = norm(title)
+    best = None
+    for h in hits:
+        if not h.get("preview") or not artist_matches(artist, (h.get("artist") or {}).get("name", "")):
+            continue
+        h_title = norm(h.get("title", ""))
+        if h_title == title_n:
+            return h
+        if best is None and (title_n in h_title or h_title in title_n):
+            best = h
+    return best
+
+
+def crawl_artist(svc: Services, artist_id: int | None, artist_name: str = "",
+                 related_limit: int = 8, top_limit: int = 5) -> int:
+    """Sanatçının ve benzer sanatçıların popüler şarkılarını kuyruğa ekler (öncelik 0).
+    Aynı sanatçı ikinci kez taranmaz. Dönüş: kuyruğa eklenen şarkı sayısı."""
+    if not svc.db or not artist_id or svc.db.artist_crawled(artist_id):
+        return 0
+    related = svc.deezer.artist_related(artist_id, limit=related_limit)
+    artists = [(artist_id, artist_name)] + [(a["id"], a.get("name", "")) for a in related]
+    items = []
+    for aid, _ in artists:
+        for t in svc.deezer.artist_top(aid, limit=top_limit):
+            if t.get("preview"):
+                items.append({"deezer_id": t["id"], "track_name": t.get("title"),
+                              "artist_name": (t.get("artist") or {}).get("name")})
+    added = svc.db.enqueue(items, priority=0, source="crawl") if items else 0
+    svc.db.mark_artist_crawled(artist_id, artist_name, [a for a, _ in artists[1:]])
+    log.info("Tarama: %s (+%d benzer sanatçı) -> %d yeni iş", artist_name, len(artists) - 1, added)
+    return added

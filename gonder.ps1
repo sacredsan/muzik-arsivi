@@ -30,13 +30,17 @@ if ($bad) { git reset -q; Fail "gizli olabilecek dosya bulundu: $($bad -join ', 
 Write-Host "Guvenlik kontrolu: TAMAM (.env ve sifre klasoru yok)" -ForegroundColor Green
 
 if ($files) {
-    git commit -q -m "Proje dosyalari (yerel bilgisayardan)" | Out-Host
+    git commit -q -m "Guncelleme: $(Get-Date -Format 'yyyy-MM-dd HH:mm')" | Out-Host
 }
 
 $remote = git remote
 if (-not ($remote -contains "origin")) {
     git remote add origin https://github.com/sacredsan/muzik-arsivi.git
 }
+
+Write-Host "`nGitHub'daki son degisiklikler aliniyor (ornegin web uzerinden eklenen dosyalar)..."
+git -c rebase.autoStash=true pull --rebase origin main 2>&1 | Out-Host
+if ($LASTEXITCODE -ne 0) { git rebase --abort 2>$null; Fail "GitHub ile birlestirme yapilamadi; Claude'a haber verin" }
 
 Write-Host "`nGitHub'a gonderiliyor... (ilk seferde tarayicida GitHub girisi isteyebilir)"
 git push -u origin main 2>&1 | Out-Host

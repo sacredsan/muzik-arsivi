@@ -153,6 +153,40 @@ def energy_score(desc: dict) -> float:
     return round(float(e), 4)
 
 
+def fold_bpm(bpm: float, lo: float = 70, hi: float = 180) -> float:
+    """Tempoyu [70, 180) aralığına katlar (yarı/çift tempo karışıklığını azaltır)."""
+    if bpm <= 0:
+        return bpm
+    while bpm >= hi:
+        bpm /= 2
+    while bpm < lo:
+        bpm *= 2
+    return round(bpm, 2)
+
+
+def danceability_heuristic(desc: dict, bpm: float, pulse_clarity: float) -> float:
+    """essentia yoksa yaklaşık dans edilebilirlik: düzenli vuruş + dansa uygun tempo + vuruş yoğunluğu."""
+    b = fold_bpm(bpm)
+    tempo_fit = float(np.exp(-0.5 * ((b - 120) / 25) ** 2))  # 95-145 arası en yüksek
+    d = 0.5 * np.clip(pulse_clarity, 0, 1) + 0.3 * tempo_fit + 0.2 * _scale(desc["onset_rate"], 1, 6)
+    return round(float(d), 4)
+
+
+def mood_scores(energy: float, danceability: float, scale: str, key_conf: float, bpm: float) -> tuple[float, float]:
+    """Sesten kural tabanlı mood tahmini (model değil, kendi hesabımız).
+
+    valence: 0 hüzünlü/karanlık .. 1 mutlu/aydınlık
+    arousal: 0 sakin .. 1 hareketli
+    Ağırlıklar ilk tahmindir; Aşama 3'te örneklerle ayarlanacak.
+    """
+    kc = float(np.clip(key_conf, 0, 1))
+    mode = 0.5 + 0.5 * kc if scale == "major" else 0.5 - 0.5 * kc
+    tempo_n = _scale(fold_bpm(bpm), 70, 160)
+    valence = 0.40 * mode + 0.35 * danceability + 0.25 * energy
+    arousal = 0.50 * energy + 0.25 * tempo_n + 0.25 * danceability
+    return round(float(np.clip(valence, 0, 1)), 4), round(float(np.clip(arousal, 0, 1)), 4)
+
+
 def feature_vector(desc: dict, bpm: float, scale: str, pulse_clarity: float) -> list[float]:
     folded = bpm
     while folded > 140:

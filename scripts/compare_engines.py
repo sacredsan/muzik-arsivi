@@ -11,28 +11,30 @@ from __future__ import annotations
 
 import os
 import sys
+from types import SimpleNamespace
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from muzikarsiv.analysis import analyze_file  # noqa: E402
 from muzikarsiv.analysis import backends  # noqa: E402
+from muzikarsiv.pipeline import find_track  # noqa: E402
 from muzikarsiv.sources.deezer import DeezerClient  # noqa: E402
 
-# (arama, bilinen BPM veya None). Bilinen değerler yaygın kaynaklardaki yaklaşık değerlerdir.
+# (sanatçı, şarkı, bilinen BPM veya None). Bilinen değerler yaygın kaynaklardaki yaklaşık değerlerdir.
 SONGS = [
-    ("Sezen Aksu Gidiyorum", None),
-    ("Tarkan Şımarık", None),
-    ("Müslüm Gürses Nilüfer", None),
-    ("Barış Manço Gülpembe", None),
-    ("Ferdi Tayfur Bana Sor", None),
-    ("Duman Senden Daha Güzel", None),
-    ("Mabel Matiz Antidepresan", None),
-    ("Daft Punk Harder Better Faster Stronger", 123),
-    ("Dua Lipa Levitating", 103),
-    ("Adele Rolling in the Deep", 105),
-    ("Queen Another One Bites the Dust", 110),
-    ("The Weeknd Blinding Lights", 171),
+    ("Sezen Aksu", "Gidiyorum", None),
+    ("Tarkan", "Şımarık", None),
+    ("Müslüm Gürses", "Nilüfer", None),
+    ("Barış Manço", "Gülpembe", None),
+    ("Ferdi Tayfur", "Bana Sor", None),
+    ("Duman", "Senden Daha Güzel", None),
+    ("Mabel Matiz", "Antidepresan", None),
+    ("Daft Punk", "Harder Better Faster Stronger", 123),
+    ("Dua Lipa", "Levitating", 103),
+    ("Adele", "Rolling in the Deep", 105),
+    ("Queen", "Another One Bites the Dust", 110),
+    ("The Weeknd", "Blinding Lights", 171),
 ]
 
 
@@ -43,13 +45,15 @@ def main() -> int:
     print(f"Kurulu motorlar: {', '.join(engines)}\n")
     print(head)
     print("|" + "---|" * (2 + 2 * len(engines)))
-    for query, known in SONGS:
+    svc = SimpleNamespace(deezer=dz)
+    for artist, title, known in SONGS:
+        query = f"{artist} — {title}"
         try:
-            hits = [t for t in dz.search(query, limit=5) if t.get("preview")]
-            if not hits:
-                print(f"| {query} | — | önizleme bulunamadı |")
+            hit = find_track(svc, artist, title)  # sanatçı eşleşmesi zorunlu (remix/cover'a düşmez)
+            if not hit:
+                print(f"| {query} | — | bulunamadı |")
                 continue
-            track = dz.track(hits[0]["id"])  # taze önizleme bağlantısı
+            track = dz.track(hit["id"])  # taze önizleme bağlantısı
             path = dz.download_preview(track["preview"])
         except Exception as e:  # noqa: BLE001
             print(f"| {query} | — | HATA: {e} |")
@@ -59,7 +63,8 @@ def main() -> int:
             for eng in engines:
                 try:
                     r = analyze_file(path, eng)
-                    cells += [f"{r.bpm:.1f} ({r.bpm_conf:.2f})", f"{r.musical_key} {r.key_scale} ({r.camelot})"]
+                    cells += [f"{r.bpm_raw:.1f}→{r.bpm:.0f} ({r.bpm_conf:.2f}) dans {r.danceability:.2f}",
+                              f"{r.musical_key} {r.key_scale} ({r.camelot})"]
                 except Exception as e:  # noqa: BLE001
                     cells += [f"HATA: {str(e)[:40]}", "—"]
         finally:

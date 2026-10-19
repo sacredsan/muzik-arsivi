@@ -70,7 +70,29 @@ class TestCultureAndTags(unittest.TestCase):
         self.assertNotIn("x", tags)
         sub, moods = split_tags(tags)
         self.assertEqual(sub, ["arabesk"])
-        self.assertEqual(set(moods), {"sad", "melancholic"})
+        self.assertEqual(moods, {"sad": 0.6})  # sad + melancholic -> tek "sad"
+        # sanatçı adı ve ülke/dil etiketleri mood sayılmaz
+        _, moods = split_tags({"sezen aksu": 1.0, "turkish": 1.0, "melancholic": 0.5}, "Sezen Aksu")
+        self.assertEqual(moods, {"sad": 0.5})
+
+    def test_combined_tags(self):
+        from muzikarsiv.sources.tags import CombinedTags
+
+        class A:
+            name = "a"
+
+            def get_tags(self, *x):
+                return {"sad": 1.0, "pop": 0.5}
+
+        class B:
+            name = "b"
+
+            def get_tags(self, *x):
+                return {"pop": 1.0, "chill": 0.5}
+
+        c = CombinedTags([A(), B()], [1.0, 0.7])
+        self.assertEqual(c.name, "a+b")
+        self.assertEqual(c.get_tags("x", "y", None), {"sad": 1.0, "pop": 0.7, "chill": 0.35})
 
     def test_mb_tags(self):
         t = MusicBrainzTags().get_tags("a", "b", MBInfo(tags={"rock": 4, "favorites": 9, "sad": 2}))
@@ -169,9 +191,137 @@ class TestPipelineOffline(unittest.TestCase):
         self.assertEqual(row["cultural_context"], "tr")
         self.assertIn("anatolian rock", row["sub_genres"])
         self.assertNotIn("seen live", row["mood_tags"])
+        self.assertEqual(row["mood_tags"], {"nostalgic": 0.4})  # standart mood adı
+        self.assertIn("turkish", row["tags"])                    # ham etiketler korunur
         self.assertEqual(row["camelot"], "7A")
+        for k in ("danceability", "mood_valence", "mood_arousal"):
+            self.assertTrue(0 <= row[k] <= 1, k)
+        self.assertTrue(70 <= row["bpm"] < 180)
         self.assertTrue(row["feature_vec"].startswith("[") and row["feature_vec"].count(",") == 15)
         shutil.rmtree(tmpdir, ignore_errors=True)
+
+
+class TestAgent(unittest.TestCase):
+    """Toplu ajan: başarılı, tekrar, kalıcı hata, geçici hata, zaman sınırı, tarama."""
+
+    def _svc(self, outcomes, pending=0, crawled=()):
+        from muzikarsiv import agent
+        from muzikarsiv.sources import PermanentError
+
+        class DB:
+            def __init__(self):
+                self.log, self.enqueued, self.marked = [], [], []
+
+            def start_run(self, w):
+                return 1
+
+            def finish_run(self, *a):
+                self.log.append(("finish",) + a[1:4])
+
+            def claim_jobs(self, n, w):
+                return [{"id": i, "deezer_id": d, "source": "seed"} for i, d in enumerate(outcomes)][:n]
+
+            def pending_count(self):
+                return pending
+
+            def complete_job(self, jid, note=None):
+                self.log.append(("complete", jid, note))
+
+            def fail_job(self, jid, err, permanent=False):
+                self.log.append(("fail", jid, permanent))
+                return "failed" if permanent else "pending"
+
+            def release_jobs(self, ids):
+                self.log.append(("release", tuple(ids)))
+                return len(ids)
+
+            def artist_crawled(self, aid):
+                return aid in crawled
+
+            def enqueue(self, items, priority, source):
+                self.enqueued += items
+                return len(items)
+
+            def mark_artist_crawled(self, aid, name, rel):
+                self.marked.append((aid, tuple(rel)))
+
+        class DZ:
+            def artist_related(self, aid, limit):
+                return [{"id": 900, "name": "Benzer"}]
+
+            def artist_top(self, aid, limit):
+                return [{"id": aid * 10, "title": "x", "preview": "p", "artist": {"name": "a"}},
+                        {"id": aid * 10 + 1, "title": "y", "preview": "", "artist": {"name": "a"}}]
+
+        def fake_process(svc, did, source):
+            kind = outcomes[did]
+            if kind == "dup":
+                return {"status": "duplicate"}
+            if kind == "perm":
+                raise PermanentError("önizleme yok")
+            if kind == "boom":
+                raise ValueError("ses çözülemedi")
+            return {"status": "saved", "row": {"artist_name": "A", "track_name": "T", "bpm": 120,
+                                               "camelot": "8A", "key_scale": "minor", "energy": .5,
+                                               "danceability": .5, "cultural_context": "tr",
+                                               "artist_id": 50}}
+
+        agent.process_track = fake_process
+        cfg = load_config()
+        svc = Services(cfg=cfg, deezer=DZ(), mb=None, tags=None, db=DB())
+        return agent, svc
+
+    def test_outcomes(self):
+        agent, svc = self._svc({0: "ok", 1: "dup", 2: "perm", 3: "boom"})
+        st = agent.run_batch(svc, batch_size=10, budget_sec=60)
+        self.assertEqual((st.processed, st.skipped, st.failed), (1, 1, 2))
+        log = svc.db.log
+        self.assertIn(("complete", 0, None), log)
+        self.assertIn(("complete", 1, "arşivde zaten var"), log)
+        self.assertIn(("fail", 2, True), log)    # kalıcı -> DLQ
+        self.assertIn(("fail", 3, False), log)   # geçici -> tekrar denenecek
+        self.assertEqual(log[-1], ("finish", 1, 2, 1))
+        # tarama: sanatçı 50 + benzer 900, önizlemesi olmayanlar eklenmez
+        self.assertEqual(sorted(i["deezer_id"] for i in svc.db.enqueued), [500, 9000])
+        self.assertEqual(svc.db.marked, [(50, (900,))])
+
+    def test_budget_releases_rest(self):
+        agent, svc = self._svc({0: "ok", 1: "ok", 2: "ok"})
+        st = agent.run_batch(svc, batch_size=10, budget_sec=-1)  # süre baştan dolmuş
+        self.assertEqual(st.processed, 0)
+        self.assertIn(("release", (0, 1, 2)), svc.db.log)
+
+    def test_crawl_brake_and_no_repeat(self):
+        agent, svc = self._svc({0: "ok"}, pending=10_000)
+        st = agent.run_batch(svc, batch_size=10, budget_sec=60)
+        self.assertEqual(st.crawled, 0)              # kuyruk dolu: tarama yok
+        agent, svc = self._svc({0: "ok"}, crawled=(50,))
+        st = agent.run_batch(svc, batch_size=10, budget_sec=60)
+        self.assertEqual(st.crawled, 0)              # zaten taranmış sanatçı
+
+    def test_artist_match(self):
+        from muzikarsiv.pipeline import artist_matches
+        self.assertTrue(artist_matches("Barış Manço", "Baris Manco"))
+        self.assertTrue(artist_matches("Bob Marley", "Bob Marley & The Wailers"))
+        self.assertFalse(artist_matches("Mabel Matiz", "Mert Demir"))
+        self.assertFalse(artist_matches("Adele", "The Drum & Bass Remixers"))
+
+
+class TestStage2Features(unittest.TestCase):
+    def test_fold_and_mood(self):
+        from muzikarsiv.analysis.features import fold_bpm, mood_scores
+        self.assertEqual(fold_bpm(63), 126)
+        self.assertEqual(fold_bpm(190), 95)
+        self.assertEqual(fold_bpm(171), 171)
+        happy = mood_scores(0.9, 0.9, "major", 0.9, 125)
+        sad = mood_scores(0.2, 0.2, "minor", 0.9, 70)
+        self.assertGreater(happy[0], sad[0])
+        self.assertGreater(happy[1], sad[1])
+
+    def test_mood_vocab_turkish(self):
+        from muzikarsiv.sources.tags import split_tags
+        _, moods = split_tags({"hüzünlü": 0.8, "melancholic": 0.5, "aşk": 0.4, "pop": 1.0})
+        self.assertEqual(moods, {"sad": 0.8, "romantic": 0.4})
 
 
 if __name__ == "__main__":
