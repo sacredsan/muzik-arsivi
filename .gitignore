@@ -1,0 +1,33 @@
+# Gizli bilgiler — ASLA GitHub'a gitmez
+.env
+.env.*
+!.env.example
+şifreler ve apiler/
+sifreler*/
+*secret*
+*sifre*
+*şifre*
+
+# Günlük dosyaları (yerel testlerin çıktısı)
+*_log.txt
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+*.egg-info/
+
+# Ses dosyaları asla depoya girmez
+*.mp3
+*.wav
+
+# Editör / sistem
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Kullanılmayan yerel betikler
+kurulum_wsl.*

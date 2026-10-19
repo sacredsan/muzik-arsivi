@@ -1,0 +1,9 @@
+# Temel paketler (her yerde gerekli)
+requests>=2.31
+numpy>=1.26
+scipy>=1.11
+python-dotenv>=1.0
+
+# İsteğe bağlı analiz motorları (birini kurmanız yeterli, ikisi de yoksa "basic" kullanılır):
+#   Windows'ta:          pip install librosa
+#   Linux / Docker'da:   pip install essentia     (Windows'ta essentia paketi yoktur)

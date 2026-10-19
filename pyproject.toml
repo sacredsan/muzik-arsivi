@@ -1,0 +1,20 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "muzikarsiv"
+version = "0.1.0"
+description = "Müzik arşivi analiz ajanı (Deezer önizlemeleri -> BPM, ton, enerji, etiket)"
+requires-python = ">=3.11"
+dependencies = ["requests>=2.31", "numpy>=1.26", "scipy>=1.11", "python-dotenv>=1.0"]
+
+[project.optional-dependencies]
+librosa = ["librosa>=0.10"]
+essentia = ["essentia>=2.1b6.dev1110"]
+
+[project.scripts]
+muzikarsiv = "muzikarsiv.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["muzikarsiv*"]
