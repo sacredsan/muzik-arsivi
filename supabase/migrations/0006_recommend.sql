@@ -10,6 +10,8 @@ returns text language sql immutable parallel safe as $$
     when 'afrikanische musik' then 'african music'
     when 'klassik'           then 'classical'
     when 'musique africaine' then 'african music'
+    when 'türkische volksmusik' then 'folk'
+    when 'film/jeux vidéo'   then 'films/games'
     else lower(coalesce(g, ''))
   end
 $$;
@@ -33,6 +35,13 @@ returns real language sql immutable parallel safe as $$
   select case when a is null or b is null or a <= 0 or b <= 0 then 1
     else least(1, least(abs(a - b), abs(a - 2 * b), abs(a - b / 2)) / a / 0.20)
   end::real
+$$;
+
+-- Şarkı adının sürüm eki olmadan hali ("x live at ...", "x radio edit" -> "x"): aynı şarkıyı iki kez önermemek için
+create or replace function public.base_title(t text)
+returns text language sql immutable parallel safe as $$
+  select btrim(regexp_replace(coalesce(t, ''),
+    '\s(live|orchestra|acoustic|akustik|remix|remastered|remaster|radio edit|extended|version|edit|mix|canli|feat|ft)(\s.*)?$', ''))
 $$;
 
 -- İki etiket listesinin benzerliği (Jaccard: ortak / toplam), 0..1
@@ -94,7 +103,7 @@ language sql stable set search_path = public, extensions as $$
     from songs s, src
     where s.deezer_id <> src.deezer_id
       and s.bpm is not null
-      and not (s.artist_norm = src.artist_norm and s.title_norm = src.title_norm)
+      and not (s.artist_norm = src.artist_norm and base_title(s.title_norm) = base_title(src.title_norm))
       and (not p_same_culture or s.cultural_context = src.cultural_context)
   ),
   -- en küçük kademe seviyesi: o seviyeye kadar en az (limit × 4) aday olsun
@@ -115,7 +124,7 @@ language sql stable set search_path = public, extensions as $$
   ),
   -- aynı şarkının farklı sürümlerinden yalnızca biri
   dedup as (
-    select *, row_number() over (partition by artist_norm, title_norm order by x_score) as rn_title
+    select *, row_number() over (partition by artist_norm, base_title(title_norm) order by x_score) as rn_title
     from capped where rn_artist <= p_max_per_artist
   )
   select d.deezer_id, d.track_name, d.artist_name, d.genre, d.cultural_context,
@@ -154,11 +163,14 @@ language sql stable set search_path = public, extensions as $$
          s.energy, s.danceability, s.mood_valence, s.mood_arousal, s.deezer_rank,
          case when q.t is null then 0
               else greatest(word_similarity(q.t, s.title_norm), word_similarity(q.t, s.artist_norm),
-                            similarity(q.t, s.artist_norm || ' ' || s.title_norm)) end::real as relevance
+                            similarity(q.t, s.artist_norm || ' ' || s.title_norm),
+                            similarity(q.t, s.title_norm || ' ' || s.artist_norm)) end::real as relevance
   from songs s, q
   where (q.t is null
          or q.t <% s.title_norm or q.t <% s.artist_norm
-         or (s.artist_norm || ' ' || s.title_norm) like '%' || q.t || '%')
+         or (s.artist_norm || ' ' || s.title_norm) like '%' || q.t || '%'
+         or similarity(q.t, s.artist_norm || ' ' || s.title_norm) > 0.3
+         or similarity(q.t, s.title_norm || ' ' || s.artist_norm) > 0.3)
     and (p_culture is null or s.cultural_context = p_culture)
     and (p_genre   is null or genre_key(s.genre) = genre_key(p_genre))
     and (p_bpm_min is null or s.bpm >= p_bpm_min)
@@ -174,7 +186,8 @@ $$;
 create or replace function public.genre_list()
 returns table (genre text, songs bigint)
 language sql stable set search_path = public as $$
-  select min(genre), count(*) from songs where genre is not null
+  -- aynı türün farklı dillerdeki adlarından en çok kullanılanı gösterilir
+  select mode() within group (order by genre), count(*) from songs where genre is not null
   group by genre_key(genre) order by 2 desc
 $$;
 
@@ -182,6 +195,7 @@ $$;
 grant execute on function public.genre_key(text)                to anon, authenticated, service_role;
 grant execute on function public.camelot_distance(text, text)   to anon, authenticated, service_role;
 grant execute on function public.bpm_distance(real, real)       to anon, authenticated, service_role;
+grant execute on function public.base_title(text)               to anon, authenticated, service_role;
 grant execute on function public.tag_overlap(text[], text[])    to anon, authenticated, service_role;
 grant execute on function public.recommend(bigint, int, real, real, real, real, real, real, int, boolean)
   to anon, authenticated, service_role;
