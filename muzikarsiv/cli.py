@@ -7,6 +7,7 @@
   python -m muzikarsiv analyze-file sarki.mp3   # internetsiz: yerel dosyayı analiz et
   python -m muzikarsiv seed scripts/seed.csv     # başlangıç şarkılarını kuyruğa ekle
   python -m muzikarsiv run                       # kuyruktan bir tur iş işle (toplu ajan)
+  python -m muzikarsiv notify [--report]         # Telegram: alarm (sorun varsa) / günlük özet
 """
 
 from __future__ import annotations
@@ -172,6 +173,12 @@ def cmd_run(args, cfg) -> int:
             time.sleep(args.sleep)
 
 
+def cmd_notify(args, cfg) -> int:
+    from .notify import run_notify
+
+    return run_notify(cfg, report=args.report)
+
+
 def main(argv=None) -> int:
     p = argparse.ArgumentParser(prog="muzikarsiv", description="Müzik arşivi analiz ajanı")
     p.add_argument("-v", "--verbose", action="store_true", help="ayrıntılı günlük")
@@ -198,6 +205,8 @@ def main(argv=None) -> int:
     r.add_argument("--no-crawl", action="store_true", help="yeni sanatçı taraması yapma")
     r.add_argument("--loop", action="store_true", help="sürekli çalış (hep açık sunucular için)")
     r.add_argument("--sleep", type=int, default=300, help="sürekli modda boş kalınca bekleme, saniye")
+    n = sub.add_parser("notify", help="Telegram bildirimi: sorun varsa alarm, --report ile günlük özet")
+    n.add_argument("--report", action="store_true", help="durum ne olursa olsun özet gönder")
 
     args = p.parse_args(argv)
     for stream in (sys.stdout, sys.stderr):  # Windows konsolunda Türkçe karakter sorunu olmasın
@@ -209,7 +218,8 @@ def main(argv=None) -> int:
                         format="%(asctime)s %(levelname)s %(name)s: %(message)s")
     cfg = load_config()
     handlers = {"check": cmd_check, "search": cmd_search, "analyze": cmd_analyze,
-                "analyze-file": cmd_analyze_file, "seed": cmd_seed, "run": cmd_run}
+                "analyze-file": cmd_analyze_file, "seed": cmd_seed, "run": cmd_run,
+                "notify": cmd_notify}
     try:
         return handlers[args.cmd](args, cfg)
     except Exception as e:  # noqa: BLE001
