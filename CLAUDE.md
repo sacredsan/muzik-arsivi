@@ -54,7 +54,7 @@ Mobil entegrasyon Aşama 5'te. Şema ve API buna uygun tasarlanır.
 6. `cultural_context`: sanatçı ülkesi TR → tr; değilse etiketler (turkish, arabesk, türkü...) → tr; değilse ad/başlıkta ı/ğ/ş/İ → tr; yoksa global
 7. `songs` upsert (deezer_id), iş completed
 8. Crawl: related/top ile yeni şarkılar priority=0 (artist_graph ile tekrar yok)
-9. Hata: retry++ ve geri çekilme; kalıcı hata veya 3+ deneme → failed (DLQ); ajan durmaz
+9. Hata: retry++ ve geri çekilme; kalıcı hata veya 3+ deneme → failed (DLQ); ajan durmaz. Kalıcı hatalar (ör. önizleme yok) `worker_runs`'ta "atlanan" sayılır, hata oranını şişirmez.
 10. Hız: token bucket (Deezer 40/5 sn, MusicBrainz 1/sn), 429/kota hatasında üstel geri çekilme, devre kesici
 11. `worker_runs` özeti
 
@@ -63,7 +63,9 @@ Tohum: `scripts/seed.csv` ile ~50-100 karışık (Türkçe + global) şarkı.
 ## 6. Web paneli (Aşama 3)
 Bulanık arama + filtreler (tür, BPM, ton, enerji, kültür), şarkı detayı + "benzer 5 şarkı", istatistik sayfası. Sadece okuma.
 
-**Öneri RPC'si** (düşük skor iyi): 0.30·BPM mesafesi (yarı/çift BPM eşdeğer, oransal) + 0.20·|enerji farkı| + 0.20·Camelot uyumsuzluğu (çember mesafesi, 0..1) + 0.20·vektör kosinüs mesafesi + 0.10·popülerlik cezası. Aday havuzu: aynı kültür + uyumlu tür; 5'ten az sonuç → kademeli gevşet (alt tür → mood → kültür). Aynı sanatçıdan en çok 2. Ağırlıklar tek yerde parametre olarak durur, panelde denenebilir.
+**Öneri RPC'si** `recommend(p_deezer_id, p_limit, w_bpm, w_energy, w_key, w_vec, w_pop, w_mood, p_max_per_artist, p_same_culture)` — migration 0006 (düşük skor iyi): 0.30·BPM mesafesi (yarı/çift BPM eşdeğer, oransal) + 0.20·|enerji farkı| + 0.20·Camelot uyumsuzluğu (çember mesafesi, 0..1) + 0.20·vektör kosinüs mesafesi + 0.10·popülerlik cezası. Aday havuzu: aynı kültür + uyumlu tür; 5'ten az sonuç → kademeli gevşet (alt tür → mood → kültür). Aynı sanatçıdan en çok 2; aynı şarkının sürümleri (live/remix/edit…) tek sayılır. Ağırlıklar fonksiyon parametresidir (varsayılanlar `web/src/config.js` ile aynı), panelde kaydırıcılarla denenebilir; `w_mood` (sesten ruh hali) varsayılan 0. Ölçekler gerçek veriye göre: BPM %20 fark = 1, kosinüs mesafesi 0.25 = 1, Camelot paralel ton = yarım adım.
+- Arama: `search_songs(...)` (pg_trgm, yazım hatasına dayanıklı) + `genre_list()`; Deezer'ın farklı dillerdeki tür adları `genre_key()` ile birleştirilir.
+- Panel: `web/` (Vite + React, SDK yok, fetch ile PostgREST). Sayfalar: `#/` arşiv, `#/sarki/<id>` detay + Camelot çemberi + 5 öneri, `#/istatistik`. Publishable anahtar `web/src/config.js`'te (herkese açık, salt okunur). Yayın: Vercel, Root Directory = `web`.
 
 ## 7. 7/24 çalıştırma (Aşama 4)
 - GitHub Actions cron (15 dk, batch 30). Notlar: zamanlama gecikebilir; özel repoda aylık dakika limiti var (açık repoda yok); 60 gün commit olmayan açık repoda zamanlanmış iş kendiliğinden kapanır.
@@ -73,7 +75,7 @@ Bulanık arama + filtreler (tür, BPM, ton, enerji, kültür), şarkı detayı +
 - Supabase ücretsiz plan: 500 MB, 7 gün hareketsizlikte duraklama. Satır başı ~2 KB → ~200 bin şarkı. %80'e gelince uyar.
 
 ## 8. İzleme
-Panelde worker_runs ve kuyruk özeti. 24 saat hiç çalışma yoksa Telegram/e-posta uyarısı (GitHub Actions kontrol işi).
+Panelde worker_runs ve kuyruk özeti. Telegram (`python -m muzikarsiv notify`, `.github/workflows/izleme.yml`): her sabah 09:17 günlük özet; 4 saatte bir kontrol, sorun varsa alarm (3 sa hiç tur yok, bir işçi türü 6 sa sessiz, hata oranı >%10, DB >%80, kuyruk boş). Secrets: TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID.
 
 ## 9. Hukuki notlar (kodla çözülmez, hatırlat)
 - Deezer API şartları: önizleme analizi ve türetilmiş verinin ticari saklanması → sahibi okuyacak.
@@ -84,7 +86,7 @@ Panelde worker_runs ve kuyruk özeti. 24 saat hiç çalışma yoksa Telegram/e-p
 ## 10. Aşamalar
 - **Aşama 1:** Repo, README, .env.example, migration'lar, Python paketi, tek şarkı analiz komutu (`python -m muzikarsiv analyze <deezer_id>`), testler.
 - **Aşama 2:** Toplu ajan, kuyruk, DLQ, crawl, hız sınırlayıcı, seed, danceability, sesten mood tahmini. Ajan doğrudan BULUTTA (GitHub Actions, essentia) çalışır; sahibin bilgisayarı 7/24 açık kalmaz, yerelde WSL/essentia gerekmez (Windows'ta librosa sadece deneme içindir). Hedef: 100 şarkı. Enerji/vektör/mood ağırlıklarını gerçek veriyle kalibre et (`analysis_version` artır).
-- **Kod gönderimi:** Sahibin bilgisayarındaki klasör git kaynağıdır; `gonder.bat` GitHub'a yükler. `.github/workflows/` dosyaları GitHub web arayüzünden düzenlenir (uzak araçlar bu klasöre yazamaz).
+- **Kod gönderimi:** Claude GitHub uygulaması depoya kurulu; Claude doğrudan `claude/...` dalına gönderir, `main`'e birleştirir. Sahibin bilgisayarındaki klasör `gonder.bat` ile (önce `pull --rebase`) eşitlenir. `.github/workflows/` dosyaları gerekirse GitHub web arayüzünden düzenlenir.
 - **Aşama 3:** Öneri RPC'si + web paneli; Türkçe/arabesk örneklerle değerlendirme. İyi değilse ölçeklemeye geçilmez.
 - **Aşama 4:** Docker, Cloud Run (yedek işçi), izleme/uyarı (GitHub Actions ajanı Aşama 2'de kuruldu).
 - **Aşama 5:** 20-50 bin şarkı; mobil API (arşivde yoksa senkron analiz + kuyruğa ekle; arşiv yetmezse Deezer related/radio adayları; kullanıcı başına kota).

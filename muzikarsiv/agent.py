@@ -106,10 +106,11 @@ def _process_job(svc: Services, job: dict, stats: RunStats, crawl_allowed: bool)
             except Exception as e:  # noqa: BLE001  tarama hatası işi bozmasın
                 log.warning("Tarama atlandı (%s): %s", row.get("artist_name"), e)
     except PermanentError as e:
+        # Örn. Deezer önizlemesi yok: sistem arızası değil, şarkı analiz edilemez.
+        # İş kalıcı olarak 'failed' olur (tekrar denenmez) ama hata oranına sayılmaz -> 'atlanan'.
         svc.db.fail_job(jid, str(e), permanent=True)
-        stats.failed += 1
-        stats.errors.append(f"{did}: {e}")
-        log.warning("✗ %s kalıcı hata: %s", did, e)
+        stats.skipped += 1
+        log.info("– %s atlandı: %s", did, e)
     except CircuitOpen as e:
         # servis geçici olarak kapalı: işi deneme hakkı yemeden iade et
         svc.db.release_jobs([jid])

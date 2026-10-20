@@ -277,13 +277,14 @@ class TestAgent(unittest.TestCase):
     def test_outcomes(self):
         agent, svc = self._svc({0: "ok", 1: "dup", 2: "perm", 3: "boom"})
         st = agent.run_batch(svc, batch_size=10, budget_sec=60)
-        self.assertEqual((st.processed, st.skipped, st.failed), (1, 1, 2))
+        # kalıcı hata (önizleme yok) "atlanan" sayılır, hata oranını şişirmez
+        self.assertEqual((st.processed, st.skipped, st.failed), (1, 2, 1))
         log = svc.db.log
         self.assertIn(("complete", 0, None), log)
         self.assertIn(("complete", 1, "arşivde zaten var"), log)
         self.assertIn(("fail", 2, True), log)    # kalıcı -> DLQ
         self.assertIn(("fail", 3, False), log)   # geçici -> tekrar denenecek
-        self.assertEqual(log[-1], ("finish", 1, 2, 1))
+        self.assertEqual(log[-1], ("finish", 1, 1, 2))   # işlenen, hatalı, atlanan
         # tarama: sanatçı 50 + benzer 900, önizlemesi olmayanlar eklenmez
         self.assertEqual(sorted(i["deezer_id"] for i in svc.db.enqueued), [500, 9000])
         self.assertEqual(svc.db.marked, [(50, (900,))])

@@ -1,0 +1,238 @@
+/* Müzik Arşivi paneli — DJ kütüphanesi hissi: koyu grafit zemin, renk sadece verinin kendisinden (Camelot tonları) */
+:root {
+  --bg: #171c27;
+  --panel: #1f2533;
+  --raised: #262d3d;
+  --line: #313a4d;
+  --text: #e7eaf1;
+  --muted: #8d96aa;
+  --focus: #9cc4ff;
+  --tr: #e2725b;
+  --global: #5b9be2;
+  --bd-bpm: #c9a2f5;
+  --bd-energy: #f3b562;
+  --bd-key: #74d3ae;
+  --bd-vec: #7fb2f0;
+  --bd-pop: #a2a9b8;
+  --bd-mood: #f08fb0;
+  --live: #74d3ae;
+  --radius-s: 6px;
+  --radius-m: 12px;
+  color-scheme: dark;
+}
+
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme='dark']) {
+    --bg: #f3f4f7;
+    --panel: #ffffff;
+    --raised: #eceef3;
+    --line: #d7dbe4;
+    --text: #1a1f2b;
+    --muted: #5d6578;
+    --focus: #2563eb;
+    --live: #1f8a62;
+    color-scheme: light;
+  }
+}
+
+* { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font: 15px/1.5 'IBM Plex Sans', system-ui, sans-serif;
+  font-feature-settings: 'tnum' 1;
+}
+a { color: inherit; }
+:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; border-radius: 4px; }
+.sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+.muted { color: var(--muted); }
+.small { font-size: 13px; }
+.num { font-variant-numeric: tabular-nums; }
+.pad { padding: 24px 0; }
+
+main { max-width: 1180px; margin: 0 auto; padding: 0 16px 64px; }
+
+/* Üst çubuk */
+.top {
+  max-width: 1180px; margin: 0 auto; padding: 18px 16px;
+  display: flex; align-items: center; justify-content: space-between; gap: 16px;
+}
+.brand { display: flex; align-items: center; gap: 10px; text-decoration: none; font-weight: 600; font-size: 17px; }
+.brand-mark { width: 26px; height: 26px; }
+.top nav { display: flex; gap: 4px; }
+.top nav a { text-decoration: none; padding: 6px 12px; border-radius: 999px; color: var(--muted); }
+.top nav a[aria-current='page'] { background: var(--raised); color: var(--text); }
+
+/* Arama ve filtreler */
+.search {
+  width: 100%; font: inherit; font-size: 20px; padding: 14px 18px;
+  background: var(--panel); color: var(--text); border: 1px solid var(--line); border-radius: var(--radius-m);
+}
+.search::placeholder { color: var(--muted); }
+.filters { display: flex; flex-wrap: wrap; gap: 10px 16px; align-items: end; margin: 14px 0 18px; }
+.field { display: flex; flex-direction: column; gap: 4px; font-size: 13px; color: var(--muted); }
+.field-pair { flex-direction: row; align-items: center; flex-wrap: wrap; }
+.field-pair span { width: 100%; }
+.field select, .field input {
+  font: inherit; font-size: 14px; color: var(--text); background: var(--panel);
+  border: 1px solid var(--line); border-radius: var(--radius-s); padding: 7px 9px;
+}
+.field input[type='number'] { width: 76px; }
+.seg { display: inline-flex; background: var(--panel); border: 1px solid var(--line); border-radius: 999px; padding: 3px; }
+.seg button { font: inherit; font-size: 14px; border: 0; background: none; color: var(--muted); padding: 5px 14px; border-radius: 999px; cursor: pointer; }
+.seg .seg-on { background: var(--raised); color: var(--text); }
+
+.btn {
+  font: inherit; font-size: 14px; cursor: pointer; color: var(--bg); background: var(--text);
+  border: 0; border-radius: 999px; padding: 8px 16px;
+}
+.btn-quiet { background: none; color: var(--muted); text-decoration: underline; padding: 8px 4px; }
+
+/* Şarkı listesi — DJ yazılımlarındaki parça tablosu gibi sık */
+.tracks { width: 100%; border-collapse: collapse; }
+.tracks th {
+  text-align: left; font-weight: 500; font-size: 13px; color: var(--muted);
+  padding: 6px 10px; border-bottom: 1px solid var(--line);
+}
+.tracks td { padding: 8px 10px; border-bottom: 1px solid var(--line); vertical-align: middle; }
+.tracks tbody tr { cursor: pointer; }
+.tracks tbody tr:hover { background: var(--panel); }
+.col-title a { text-decoration: none; display: flex; flex-direction: column; }
+.t { font-weight: 500; }
+.a { color: var(--muted); font-size: 14px; }
+.col-num { text-align: right; width: 64px; }
+.col-meter { width: 130px; }
+.col-genre { max-width: 160px; }
+.empty { color: var(--muted); padding: 32px 0; }
+.list-foot { padding: 18px 0; display: flex; justify-content: center; }
+
+.key-chip {
+  display: inline-block; min-width: 38px; text-align: center; font-weight: 600; font-size: 13px;
+  padding: 2px 7px; border-radius: var(--radius-s); background: var(--key); color: #111722;
+}
+.key-chip-big { font-size: 22px; padding: 4px 12px; min-width: 64px; }
+
+.meter { display: inline-flex; align-items: center; gap: 8px; }
+.meter-track { display: inline-block; width: 70px; height: 5px; border-radius: 3px; background: var(--line); overflow: hidden; }
+.meter-track.wide { width: 100%; height: 8px; display: block; }
+.meter-fill { display: block; height: 100%; background: var(--text); opacity: .75; border-radius: 3px; }
+.meter-num { font-size: 13px; color: var(--muted); width: 24px; }
+
+.culture { font-size: 13px; padding-left: 12px; position: relative; }
+.culture::before { content: ''; position: absolute; left: 0; top: 50%; width: 7px; height: 7px; margin-top: -3.5px; border-radius: 50%; }
+.culture-tr::before { background: var(--tr); }
+.culture-global::before { background: var(--global); }
+
+.error-box { border: 1px solid #d0675a; border-radius: var(--radius-m); padding: 12px 16px; margin: 12px 0; display: flex; gap: 16px; align-items: center; justify-content: space-between; }
+.error-box p { margin: 0; }
+
+/* Şarkı detayı */
+.back { color: var(--muted); font-size: 14px; display: inline-block; margin: 4px 0 18px; }
+.detail-head { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 24px 40px; align-items: start; }
+.detail h1 {
+  font-family: 'IBM Plex Sans Condensed', 'IBM Plex Sans', sans-serif; font-weight: 600;
+  font-size: clamp(32px, 6vw, 56px); line-height: 1.02; margin: 0 0 8px; letter-spacing: -0.01em;
+}
+.detail-artist { font-size: 20px; margin: 0 0 14px; }
+.detail-meta { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.pill { display: inline-block; font-size: 13px; padding: 3px 10px; border-radius: 999px; background: var(--raised); margin: 0 6px 6px 0; }
+.pill-link { text-decoration: none; border: 1px solid var(--line); background: none; }
+.facts { display: grid; grid-template-columns: repeat(2, minmax(140px, auto)); gap: 14px 28px; margin: 0; }
+.facts dt { font-size: 13px; color: var(--muted); }
+.facts dd { margin: 2px 0 0; }
+.fact-big { font-family: 'IBM Plex Sans Condensed', sans-serif; font-size: 34px; font-weight: 600; line-height: 1; }
+
+.match { display: grid; grid-template-columns: 320px minmax(0, 1fr); gap: 40px; margin-top: 40px; align-items: start; }
+.wheel { margin: 0; }
+.wheel svg { width: 100%; height: auto; display: block; }
+.wheel-label { font-size: 10px; fill: var(--muted); font-weight: 500; }
+.wheel-label-cur { fill: #111722; font-weight: 600; font-size: 12px; }
+.wheel-dot { fill: var(--text); stroke: var(--bg); stroke-width: 1.5; }
+.wheel-center { font-family: 'IBM Plex Sans Condensed', sans-serif; font-size: 34px; font-weight: 600; fill: var(--text); }
+.wheel-sub { font-size: 12px; fill: var(--muted); }
+.wheel figcaption { color: var(--muted); font-size: 13px; margin-top: 10px; }
+
+.recs h2 { font-size: 20px; font-weight: 600; margin: 0 0 12px; }
+.rec-list { list-style: none; margin: 0; padding: 0; }
+.rec {
+  display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 4px 16px; text-decoration: none;
+  padding: 12px 14px; border-radius: var(--radius-m); background: var(--panel); margin-bottom: 8px;
+  border: 1px solid transparent;
+}
+.rec:hover { border-color: var(--line); }
+.rec-main { display: flex; flex-direction: column; min-width: 0; }
+.rec-main .t { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.rec-facts { display: flex; gap: 12px; align-items: center; }
+.rec-why { grid-column: 1 / -1; display: flex; align-items: center; gap: 12px; }
+.breakdown { display: flex; flex: 1; height: 4px; gap: 2px; max-width: 220px; margin-left: auto; }
+.bd { display: block; min-width: 2px; border-radius: 2px; }
+.bd-d_bpm { background: var(--bd-bpm); }
+.bd-d_energy { background: var(--bd-energy); }
+.bd-d_key { background: var(--bd-key); }
+.bd-d_vec { background: var(--bd-vec); }
+.bd-d_pop { background: var(--bd-pop); }
+.bd-d_mood { background: var(--bd-mood); }
+
+.weights { margin-top: 20px; border-top: 1px solid var(--line); padding-top: 14px; }
+.weights summary { cursor: pointer; font-weight: 500; }
+.slider { display: grid; grid-template-columns: 10px 130px minmax(0, 1fr) 40px; gap: 10px; align-items: center; margin: 8px 0; font-size: 14px; }
+.swatch { width: 10px; height: 10px; border-radius: 2px; }
+.slider input { width: 100%; accent-color: var(--text); }
+.slider-val { text-align: right; color: var(--muted); }
+.check { display: flex; gap: 8px; align-items: center; font-size: 14px; margin: 12px 0 4px; }
+
+.tags { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; margin-top: 36px; }
+.tags h3 { font-size: 14px; font-weight: 500; color: var(--muted); margin: 0 0 8px; }
+.tags p { margin: 0; }
+.source-note { margin-top: 28px; }
+
+/* İstatistik */
+.stat-hero { padding: 12px 0 28px; }
+.stat-total { font-size: 22px; margin: 0 0 16px; }
+.stat-total .num {
+  display: block; font-family: 'IBM Plex Sans Condensed', sans-serif; font-weight: 600;
+  font-size: clamp(56px, 12vw, 112px); line-height: 1;
+}
+.culture-bar { display: flex; height: 34px; border-radius: var(--radius-s); overflow: hidden; font-size: 13px; font-weight: 500; }
+.culture-bar span { display: flex; align-items: center; padding: 0 10px; white-space: nowrap; color: #111722; min-width: max-content; }
+.cb-tr { background: var(--tr); }
+.cb-gl { background: var(--global); }
+.stat-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+.stat-grid section { background: var(--panel); border-radius: var(--radius-m); padding: 18px 20px; }
+.stat-grid h2 { font-size: 16px; font-weight: 600; margin: 0 0 12px; }
+.span-2 { grid-column: 1 / -1; }
+.kv { margin: 0; display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.kv dt { font-size: 13px; color: var(--muted); }
+.kv dd { margin: 0; font-size: 26px; font-weight: 600; }
+.big { font-size: 26px; font-weight: 600; margin: 0 0 10px; }
+.bars { list-style: none; margin: 0; padding: 0; }
+.bars li { display: grid; grid-template-columns: 150px minmax(0, 1fr) 48px; gap: 12px; align-items: center; padding: 3px 0; font-size: 14px; }
+.bar { height: 8px; background: var(--raised); border-radius: 4px; overflow: hidden; }
+.bar span { display: block; height: 100%; background: var(--text); opacity: .7; }
+.bars .num { text-align: right; color: var(--muted); }
+.runs { width: 100%; border-collapse: collapse; font-size: 14px; }
+.runs th { text-align: left; font-weight: 500; color: var(--muted); padding: 4px 8px; border-bottom: 1px solid var(--line); }
+.runs td { padding: 6px 8px; border-bottom: 1px solid var(--line); }
+.runs .col-num { text-align: right; }
+.live { color: var(--live); }
+
+/* Telefon */
+@media (max-width: 760px) {
+  .col-genre, .col-dance, .col-culture { display: none; }
+  .col-meter { width: auto; }
+  .meter-track { width: 40px; }
+  .detail-head, .match, .tags, .stat-grid { grid-template-columns: 1fr; }
+  .match { gap: 24px; }
+  .wheel { max-width: 300px; margin: 0 auto; }
+  .facts { grid-template-columns: 1fr 1fr; }
+  .slider { grid-template-columns: 10px 100px minmax(0, 1fr) 36px; }
+  .bars li { grid-template-columns: 100px minmax(0, 1fr) 40px; }
+  .search { font-size: 17px; }
+  .breakdown { max-width: 120px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * { transition: none !important; animation: none !important; }
+}
