@@ -1,19 +1,22 @@
-# Müzik arşivi ajanı — tek imaj, her yerde: Cloud Run Jobs, Oracle VM, yerel Docker.
+# Müzik arşivi ajanı — tek imaj, her yerde: Cloud Run Jobs, Oracle VM (ARM veya x86), yerel Docker.
 # Gizli anahtarlar imaja GİRMEZ; çalışırken ortam değişkeni olarak verilir.
-FROM python:3.11-slim
+FROM python:3.11-slim-bookworm
 
 ENV PYTHONUNBUFFERED=1 PYTHONUTF8=1 PIP_NO_CACHE_DIR=1 PIP_DISABLE_PIP_VERSION_CHECK=1 \
-    ANALYZER=auto TAG_PROVIDER=auto
+    ANALYZER=essentia TAG_PROVIDER=auto
 
 RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 COPY requirements.txt .
-# essentia: x86_64'te hazır paket var. ARM'da (Oracle Ampere) kurulamazsa librosa yedeğine düşülür.
+COPY scripts/build_essentia.sh /tmp/build_essentia.sh
+# essentia: x86_64'te hazır paket kurulur; hazır paket yoksa (ARM, ör. Oracle Ampere) kaynaktan derlenir.
+# İkisi de olmazsa derleme HATA verir: farklı motorla tutarsız veri üretmektense durmak daha iyi.
 RUN pip install -r requirements.txt \
-    && (pip install essentia || pip install librosa) \
-    && python -c "import importlib.util as u; print('motor:', 'essentia' if u.find_spec('essentia') else 'librosa')"
+    && (pip install essentia || bash /tmp/build_essentia.sh) \
+    && python -c "import essentia; print('essentia', essentia.__version__)" \
+    && rm -f /tmp/build_essentia.sh
 
 COPY muzikarsiv ./muzikarsiv
 COPY scripts ./scripts
