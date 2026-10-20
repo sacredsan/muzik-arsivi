@@ -1,0 +1,22 @@
+# Docker paketinin ARM (Oracle Ampere ile aynı mimari) sunucuda derlenip çalıştığını doğrular.
+# Gizli anahtar gerekmez, veritabanına yazmaz.
+name: docker-arm-test
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths: ["Dockerfile", "scripts/build_essentia.sh", "requirements.txt"]
+
+jobs:
+  build-arm:
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v5
+      - name: Paketi derle (ARM, essentia kaynaktan)
+        run: docker build -t muzikarsiv .
+      - name: Kurulum kontrolü
+        run: docker run --rm muzikarsiv check
+      - name: Gerçek şarkı analizi (veritabanına yazmadan)
+        run: docker run --rm -e MB_USER_AGENT="MuzikArsivi/0.2 ( https://github.com/sacredsan/muzik-arsivi )" muzikarsiv analyze 3135556 --no-db
