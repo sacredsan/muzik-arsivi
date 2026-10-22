@@ -7,7 +7,6 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
-from functools import lru_cache
 
 import requests
 
@@ -69,15 +68,22 @@ class MusicBrainzClient:
             return MBInfo()
 
     def _artist(self, mbid: str) -> tuple[str | None, dict[str, int]]:
-        return _artist_cached(self, mbid)
+        # Önbellek istemcinin içinde (modül düzeyi önbellek istemciyi ve bağlantılarını hiç bırakmıyordu)
+        cache = self.__dict__.setdefault("_artist_cache", {})
+        if mbid not in cache:
+            if len(cache) > 4096:
+                cache.clear()
+            cache[mbid] = self._fetch_artist(mbid)
+        return cache[mbid]
 
+    def close(self) -> None:
+        self.session.close()
 
-@lru_cache(maxsize=4096)
-def _artist_cached(client: MusicBrainzClient, mbid: str):
-    data = client._get(f"artist/{mbid}", {"inc": "tags"})
-    country = data.get("country")
-    if not country:
-        codes = (data.get("area") or {}).get("iso-3166-1-codes") or []
-        country = codes[0] if codes else None
-    tags = {t["name"]: int(t.get("count", 1)) for t in data.get("tags") or []}
-    return country, tags
+    def _fetch_artist(self, mbid: str):
+        data = self._get(f"artist/{mbid}", {"inc": "tags"})
+        country = data.get("country")
+        if not country:
+            codes = (data.get("area") or {}).get("iso-3166-1-codes") or []
+            country = codes[0] if codes else None
+        tags = {t["name"]: int(t.get("count", 1)) for t in data.get("tags") or []}
+        return country, tags

@@ -160,16 +160,20 @@ def cmd_run(args, cfg) -> int:
     # Sürekli mod (Oracle VM gibi hep açık sunucular için): tur bitince yenisine başlar.
     # Kuyruk boşsa veya hata olursa bir süre bekler; hiçbir hata döngüyü durdurmaz.
     log = logging.getLogger("muzikarsiv.loop")
+    # Bağlantılar TEK sefer kurulur ve hep aynısı kullanılır (her turda yenisini açmak
+    # sürekli modda dosya tanıtıcılarını tüketiyordu: "Too many open files").
+    svc = Services.build(cfg)
     while True:
         try:
-            stats = run_batch(Services.build(cfg), batch_size=args.batch, budget_sec=args.budget,
+            stats = run_batch(svc, batch_size=args.batch, budget_sec=args.budget,
                               crawl=not args.no_crawl)
-            idle = stats.processed + stats.skipped + stats.failed == 0
+            # Hiç başarı yoksa (boş kuyruk ya da hep hata) dinlen: arızalı işçi kuyruğu yakmasın.
+            idle = stats.processed == 0
         except Exception as e:  # noqa: BLE001
             log.error("Tur hatası (döngü devam ediyor): %s", e)
             idle = True
         if idle:
-            log.info("Yapılacak iş yok ya da hata oldu; %d sn bekleniyor", args.sleep)
+            log.info("Bu turda başarılı iş yok; %d sn bekleniyor", args.sleep)
             time.sleep(args.sleep)
 
 

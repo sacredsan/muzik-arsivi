@@ -4,8 +4,6 @@ from __future__ import annotations
 
 import os
 import tempfile
-from functools import lru_cache
-
 import requests
 
 from ..ratelimit import CircuitBreaker, RetryableError, TokenBucket, get_json
@@ -24,6 +22,9 @@ class DeezerClient:
         self.session.headers.setdefault("User-Agent", "MuzikArsivi/0.1")
         self.bucket = TokenBucket(requests_per_period, period)
         self.breaker = CircuitBreaker(threshold=6, cooldown=90)
+        # Önbellek istemcinin İÇİNDE: eskiden modül düzeyindeki lru_cache istemciyi (ve açık
+        # bağlantılarını) sonsuza dek tutuyordu; sürekli modda "Too many open files" hatası buydu.
+        self._genre_cache: dict[int, str | None] = {}
 
     def _get(self, path: str, params=None) -> dict:
         data = get_json(self.session, f"{BASE}/{path}", params=params, bucket=self.bucket,
@@ -38,7 +39,24 @@ class DeezerClient:
         return self._get(f"track/{track_id}")
 
     def album_genre(self, album_id: int | None) -> str | None:
-        return _album_genre_cached(self, album_id) if album_id else None
+        if not album_id:
+            return None
+        if album_id not in self._genre_cache:
+            if len(self._genre_cache) > 4096:
+                self._genre_cache.clear()
+            self._genre_cache[album_id] = self._fetch_album_genre(album_id)
+        return self._genre_cache[album_id]
+
+    def _fetch_album_genre(self, album_id: int) -> str | None:
+        try:
+            album = self._get(f"album/{album_id}")
+        except PermanentError:
+            return None
+        genres = (album.get("genres") or {}).get("data") or []
+        return genres[0]["name"] if genres else None
+
+    def close(self) -> None:
+        self.session.close()
 
     def artist_related(self, artist_id: int, limit: int = 20) -> list[dict]:
         return self._get(f"artist/{artist_id}/related", {"limit": limit}).get("data", [])
@@ -67,12 +85,3 @@ class DeezerClient:
             f.write(r.content)
         return path
 
-
-@lru_cache(maxsize=4096)
-def _album_genre_cached(client: DeezerClient, album_id: int) -> str | None:
-    try:
-        album = client._get(f"album/{album_id}")
-    except PermanentError:
-        return None
-    genres = (album.get("genres") or {}).get("data") or []
-    return genres[0]["name"] if genres else None

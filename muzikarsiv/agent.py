@@ -23,6 +23,8 @@ from .sources import PermanentError
 
 log = logging.getLogger(__name__)
 
+UNHEALTHY_FAILS = 5  # bir turda hiç başarı olmadan bu kadar hata -> işçi kendini durdurur
+
 
 @dataclass
 class RunStats:
@@ -61,8 +63,18 @@ def run_batch(svc: Services, batch_size: int | None = None, budget_sec: float | 
         for i, job in enumerate(jobs):
             if time.monotonic() - t0 > budget_sec:
                 rest = [j["id"] for j in jobs[i:]]
-                stats.released = svc.db.release_jobs(rest)
+                stats.released += svc.db.release_jobs(rest)
                 log.info("Zaman sınırı: %d iş kuyruğa iade edildi", stats.released)
+                break
+            if stats.processed == 0 and stats.failed >= UNHEALTHY_FAILS:
+                # Art arda hata, hiç başarı yok: sorun büyük ihtimalle şarkılarda değil bu işçide
+                # (ağ, disk, dosya sınırı...). Kalan işleri deneme hakkı yemeden iade et, diğer
+                # işçiler alsın. Böylece bozuk bir işçi kuyruğu "failed"e boğamaz.
+                rest = [j["id"] for j in jobs[i:]]
+                stats.released += svc.db.release_jobs(rest)
+                stats.errors.append(f"işçi sağlıksız: {stats.failed} art arda hata, {len(rest)} iş iade")
+                log.error("İşçi sağlıksız görünüyor (%d art arda hata); %d iş iade edildi",
+                          stats.failed, len(rest))
                 break
             _process_job(svc, job, stats, crawl_allowed)
         _reanalyze_outdated(svc, stats, t0, budget_sec)

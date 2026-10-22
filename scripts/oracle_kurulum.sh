@@ -37,7 +37,7 @@ sudo docker build -t muzikarsiv "$DIR"
 
 echo "== [5/5] Ajan başlatılıyor (sürekli mod, sunucu yeniden başlarsa kendiliğinden açılır)"
 sudo docker rm -f "$NAME" >/dev/null 2>&1 || true
-sudo docker run -d --name "$NAME" --restart unless-stopped --env-file "$ENVF" \
+sudo docker run -d --name "$NAME" --restart unless-stopped --env-file "$ENVF" --ulimit nofile=65536:65536 \
   -e WORKER_NAME="oracle-$(uname -m)" -e ANALYZER=essentia -e TAG_PROVIDER=auto -e BATCH_SIZE=30 \
   -e MB_USER_AGENT="MuzikArsivi/0.2 ( https://github.com/sacredsan/muzik-arsivi )" \
   --log-opt max-size=10m --log-opt max-file=3 \
