@@ -146,6 +146,17 @@ def run_notify(cfg, report: bool) -> int:
                 "Bunu GitHub Secrets'a <b>TELEGRAM_CHAT_ID</b> adıyla ekleyin.")
         print("TELEGRAM_CHAT_ID boştu; kimlik numarası Telegram'a gönderildi.")
 
+    # Türkçe modda kuyruk azaldıysa önce yeni Türkçe şarkı bulunur (ajan turları seyrek çalışabiliyor)
+    try:
+        from .agent import topup_tr_queue
+        from .pipeline import Services
+
+        added = topup_tr_queue(Services.build(cfg))
+        if added:
+            print(f"Türkçe tarama: kuyruğa {added} yeni iş eklendi.")
+    except Exception as e:  # noqa: BLE001  izleme bundan etkilenmesin
+        print(f"Türkçe tarama atlandı: {e}")
+
     data = collect(SupabaseDB(cfg.supabase_url, cfg.supabase_service_key))
     alarms = find_alarms(data)
     if report:

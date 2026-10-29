@@ -28,8 +28,8 @@ UNHEALTHY_FAILS = 5  # bir turda hiç başarı olmadan bu kadar hata -> işçi k
 # Türkçe mod (veritabanında app_settings.crawl_mode = 'tr', migration 0007)
 TR_RELATED = 15          # Türk sanatçısının kaç benzer sanatçısına bakılır
 TR_TOP = 10              # her sanatçının kaç popüler şarkısı kuyruğa eklenir
-TR_TOPUP_BELOW = 300     # kuyrukta bundan az iş kalınca arşivdeki Türk sanatçıları taranır
-TR_TOPUP_ARTISTS = 12    # bir turda en fazla kaç Türk sanatçısı taranır
+TR_TOPUP_BELOW = 2000    # kuyrukta bundan az iş kalınca arşivdeki Türk sanatçıları taranır
+TR_TOPUP_ARTISTS = 80    # bir turda en fazla kaç Türk sanatçısı taranır (Oracle/Cloud Run hızlı tüketiyor)
 
 
 @dataclass
@@ -154,6 +154,15 @@ def _process_job(svc: Services, job: dict, stats: RunStats, crawl_allowed: bool)
         stats.failed += 1
         stats.errors.append(f"{did}: {type(e).__name__}")
         log.warning("✗ %s hata (%s): %s", did, status, e)
+
+
+def topup_tr_queue(svc: Services) -> int:
+    """Türkçe moddaysa ve kuyruk azaldıysa arşivdeki Türk sanatçılarından kuyruğa şarkı ekler.
+    (Hem ajan turunda hem 4 saatlik izlemede çağrılır.) Dönüş: eklenen iş sayısı."""
+    mode, pending = svc.db.crawl_status()
+    if mode != "tr" or pending >= TR_TOPUP_BELOW:
+        return 0
+    return crawl_tr_artists(svc, max_artists=TR_TOPUP_ARTISTS)
 
 
 def crawl_tr_artists(svc: Services, max_artists: int = TR_TOPUP_ARTISTS) -> int:
