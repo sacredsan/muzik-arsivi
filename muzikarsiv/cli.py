@@ -177,6 +177,15 @@ def cmd_run(args, cfg) -> int:
             time.sleep(args.sleep)
 
 
+def cmd_crawl_tr(args, cfg) -> int:
+    from .agent import crawl_tr_artists
+    from .pipeline import Services
+
+    n = crawl_tr_artists(Services.build(cfg), max_artists=args.limit)
+    print(f"Kuyruğa eklenen yeni Türkçe iş: {n}")
+    return 0
+
+
 def cmd_notify(args, cfg) -> int:
     from .notify import run_notify
 
@@ -209,6 +218,8 @@ def main(argv=None) -> int:
     r.add_argument("--no-crawl", action="store_true", help="yeni sanatçı taraması yapma")
     r.add_argument("--loop", action="store_true", help="sürekli çalış (hep açık sunucular için)")
     r.add_argument("--sleep", type=int, default=300, help="sürekli modda boş kalınca bekleme, saniye")
+    ct = sub.add_parser("crawl-tr", help="arşivdeki Türk sanatçılarını tarayıp kuyruğa şarkı ekle")
+    ct.add_argument("--limit", type=int, default=60, help="en fazla kaç sanatçı")
     n = sub.add_parser("notify", help="Telegram bildirimi: sorun varsa alarm, --report ile günlük özet")
     n.add_argument("--report", action="store_true", help="durum ne olursa olsun özet gönder")
 
@@ -222,7 +233,7 @@ def main(argv=None) -> int:
                         format="%(asctime)s %(levelname)s %(name)s: %(message)s")
     cfg = load_config()
     handlers = {"check": cmd_check, "search": cmd_search, "analyze": cmd_analyze,
-                "analyze-file": cmd_analyze_file, "seed": cmd_seed, "run": cmd_run,
+                "analyze-file": cmd_analyze_file, "seed": cmd_seed, "run": cmd_run, "crawl-tr": cmd_crawl_tr,
                 "notify": cmd_notify}
     try:
         return handlers[args.cmd](args, cfg)

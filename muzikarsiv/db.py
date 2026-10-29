@@ -77,6 +77,29 @@ class SupabaseDB:
     def pending_count(self) -> int:
         return int(self.rpc("pending_count") or 0)
 
+    def crawl_status(self) -> tuple[str, int]:
+        """(tarama modu, gerçek bekleyen iş sayısı). Mod: 'tr' = sadece Türkçe tarama, 'all' = hepsi.
+        Veritabanında 0007 yoksa eski davranış: ('all', pending_count())."""
+        try:
+            st = self.rpc("crawl_status") or {}
+            return str(st.get("mode") or "all"), int(st.get("pending") or 0)
+        except SupabaseError:
+            return "all", self.pending_count()
+
+    def tr_artists(self, limit: int = 5000) -> list[tuple[int, str]]:
+        """Arşivdeki Türk sanatçıları (en popüler şarkısı olan önce), tekrarsız."""
+        r = self.s.get(f"{self.base}/songs", timeout=60,
+                       params={"select": "artist_id,artist_name", "cultural_context": "eq.tr",
+                               "artist_id": "not.is.null", "order": "deezer_rank.desc.nullslast",
+                               "limit": str(limit)})
+        seen, out = set(), []
+        for x in self._check(r) or []:
+            aid = x.get("artist_id")
+            if aid and aid not in seen:
+                seen.add(aid)
+                out.append((aid, x.get("artist_name") or ""))
+        return out
+
     # ---- sanatçı grafiği
     def artist_crawled(self, artist_id: int) -> bool:
         r = self.s.get(f"{self.base}/artist_graph", params={"artist_id": f"eq.{artist_id}", "select": "artist_id"},

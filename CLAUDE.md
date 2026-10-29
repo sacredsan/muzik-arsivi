@@ -58,7 +58,9 @@ Mobil entegrasyon Aşama 5'te. Şema ve API buna uygun tasarlanır.
 10. Hız: token bucket (Deezer 40/5 sn, MusicBrainz 1/sn), 429/kota hatasında üstel geri çekilme, devre kesici
 11. `worker_runs` özeti
 
-Tohum: `scripts/seed.csv` ile ~50-100 karışık (Türkçe + global) şarkı.
+Tohum: `scripts/seed.csv` = ~60 Türkçe şarkı (arabesk, pop, rock, rap, türkü, slow, elektronik); eski karışık liste `scripts/seed_karisik.csv`.
+
+**Türkçe mod (migration 0007, Ekim 2026):** Arşiv yabancı şarkıya kaydığı için (Türkçe ~2 bin / yabancı ~180 bin) `app_settings.crawl_mode = 'tr'`. Bu modda yalnızca Türkçe şarkıların sanatçısı taranır (15 benzer sanatçı × 10 şarkı, öncelik 1); kuyruk 300'ün altına inince arşivdeki Türk sanatçıları otomatik taranır (`python -m muzikarsiv crawl-tr` elle de çalışır). Eski imajlı işçiler (Oracle / Cloud Run) `pending_count()` "dolu" cevabı aldığı için tarama yapmaz, sadece kuyruğu işler. Geri almak: `update app_settings set value='all' where key='crawl_mode'`.
 
 ## 6. Web paneli (Aşama 3)
 Bulanık arama + filtreler (tür, BPM, ton, enerji, kültür), şarkı detayı + "benzer 5 şarkı", istatistik sayfası. Sadece okuma.

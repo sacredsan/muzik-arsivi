@@ -25,6 +25,12 @@ log = logging.getLogger(__name__)
 
 UNHEALTHY_FAILS = 5  # bir turda hiç başarı olmadan bu kadar hata -> işçi kendini durdurur
 
+# Türkçe mod (veritabanında app_settings.crawl_mode = 'tr', migration 0007)
+TR_RELATED = 15          # Türk sanatçısının kaç benzer sanatçısına bakılır
+TR_TOP = 10              # her sanatçının kaç popüler şarkısı kuyruğa eklenir
+TR_TOPUP_BELOW = 300     # kuyrukta bundan az iş kalınca arşivdeki Türk sanatçıları taranır
+TR_TOPUP_ARTISTS = 12    # bir turda en fazla kaç Türk sanatçısı taranır
+
 
 @dataclass
 class RunStats:
@@ -32,6 +38,7 @@ class RunStats:
     failed: int = 0
     skipped: int = 0
     crawled: int = 0
+    tr_only: bool = False
     released: int = 0
     reanalyzed: int = 0
     errors: list[str] = field(default_factory=list)
@@ -58,7 +65,15 @@ def run_batch(svc: Services, batch_size: int | None = None, budget_sec: float | 
     try:
         jobs = svc.db.claim_jobs(batch_size, cfg.worker_name)
         log.info("%s: %d iş alındı", cfg.worker_name, len(jobs))
-        crawl_allowed = crawl and svc.db.pending_count() < cfg.crawl_max_pending
+        mode, pending = svc.db.crawl_status()
+        crawl_allowed = crawl and pending < cfg.crawl_max_pending
+        stats.tr_only = mode == "tr"
+        # Türkçe modda kuyruk azaldıysa arşivdeki Türk sanatçılarından yeni şarkı bulunur
+        if crawl_allowed and stats.tr_only and pending < TR_TOPUP_BELOW:
+            try:
+                stats.crawled += crawl_tr_artists(svc, max_artists=TR_TOPUP_ARTISTS)
+            except Exception as e:  # noqa: BLE001  tarama hatası turu bozmasın
+                log.warning("Türkçe tarama atlandı: %s", e)
 
         for i, job in enumerate(jobs):
             if time.monotonic() - t0 > budget_sec:
@@ -112,9 +127,15 @@ def _process_job(svc: Services, job: dict, stats: RunStats, crawl_allowed: bool)
         log.info("✓ %s — %s | %.0f BPM %s %s | enerji %.2f dans %.2f | %s",
                  row["artist_name"], row["track_name"], row["bpm"], row["camelot"], row["key_scale"],
                  row["energy"], row["danceability"], row["cultural_context"])
-        if crawl_allowed:
+        # Türkçe modda sadece Türkçe şarkıların sanatçısı (ve benzerleri) taranır, daha geniş ve öncelikli
+        tr_song = row.get("cultural_context") == "tr"
+        if crawl_allowed and (tr_song or not stats.tr_only):
             try:
-                stats.crawled += crawl_artist(svc, row.get("artist_id"), row.get("artist_name", ""))
+                if stats.tr_only:
+                    stats.crawled += crawl_artist(svc, row.get("artist_id"), row.get("artist_name", ""),
+                                                  related_limit=TR_RELATED, top_limit=TR_TOP, priority=1)
+                else:
+                    stats.crawled += crawl_artist(svc, row.get("artist_id"), row.get("artist_name", ""))
             except Exception as e:  # noqa: BLE001  tarama hatası işi bozmasın
                 log.warning("Tarama atlandı (%s): %s", row.get("artist_name"), e)
     except PermanentError as e:
@@ -133,6 +154,26 @@ def _process_job(svc: Services, job: dict, stats: RunStats, crawl_allowed: bool)
         stats.failed += 1
         stats.errors.append(f"{did}: {type(e).__name__}")
         log.warning("✗ %s hata (%s): %s", did, status, e)
+
+
+def crawl_tr_artists(svc: Services, max_artists: int = TR_TOPUP_ARTISTS) -> int:
+    """Arşivdeki Türk sanatçılarından henüz taranmamış olanları tarar (öncelik 1).
+    Dönüş: kuyruğa eklenen şarkı sayısı."""
+    added = done = checked = 0
+    for aid, name in svc.db.tr_artists():
+        if done >= max_artists or checked >= max_artists * 20:
+            break
+        checked += 1
+        if svc.db.artist_crawled(aid):
+            continue
+        try:
+            added += crawl_artist(svc, aid, name, related_limit=TR_RELATED, top_limit=TR_TOP, priority=1)
+        except Exception as e:  # noqa: BLE001  bir sanatçının hatası diğerlerini durdurmasın
+            log.warning("Türk sanatçı taraması atlandı (%s): %s", name, e)
+        done += 1
+    if done:
+        log.info("Türkçe tarama: %d sanatçı -> %d yeni iş", done, added)
+    return added
 
 
 def seed_from_csv(svc: Services, path: str, priority: int = 5) -> dict:

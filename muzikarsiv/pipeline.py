@@ -157,8 +157,8 @@ def find_track(svc: Services, artist: str, title: str) -> dict | None:
 
 
 def crawl_artist(svc: Services, artist_id: int | None, artist_name: str = "",
-                 related_limit: int = 8, top_limit: int = 5) -> int:
-    """Sanatçının ve benzer sanatçıların popüler şarkılarını kuyruğa ekler (öncelik 0).
+                 related_limit: int = 8, top_limit: int = 5, priority: int = 0) -> int:
+    """Sanatçının ve benzer sanatçıların popüler şarkılarını kuyruğa ekler (varsayılan öncelik 0).
     Aynı sanatçı ikinci kez taranmaz. Dönüş: kuyruğa eklenen şarkı sayısı."""
     if not svc.db or not artist_id or svc.db.artist_crawled(artist_id):
         return 0
@@ -170,7 +170,7 @@ def crawl_artist(svc: Services, artist_id: int | None, artist_name: str = "",
             if t.get("preview"):
                 items.append({"deezer_id": t["id"], "track_name": t.get("title"),
                               "artist_name": (t.get("artist") or {}).get("name")})
-    added = svc.db.enqueue(items, priority=0, source="crawl") if items else 0
+    added = svc.db.enqueue(items, priority=priority, source="crawl") if items else 0
     svc.db.mark_artist_crawled(artist_id, artist_name, [a for a, _ in artists[1:]])
     log.info("Tarama: %s (+%d benzer sanatçı) -> %d yeni iş", artist_name, len(artists) - 1, added)
     return added
