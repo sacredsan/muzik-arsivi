@@ -13,6 +13,7 @@
 from __future__ import annotations
 
 import argparse
+import os
 import json
 import logging
 import shutil
@@ -241,4 +242,6 @@ def main(argv=None) -> int:
         if args.verbose:
             raise
         print(f"HATA: {e}", file=sys.stderr)
+        if os.environ.get("GITHUB_ACTIONS"):  # hata GitHub'da "annotation" olarak da görünsün
+            print(f"::error::HATA ({type(e).__name__}): {str(e)[:900]}")
         return 1
