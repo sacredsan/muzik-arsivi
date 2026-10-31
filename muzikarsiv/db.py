@@ -106,6 +106,13 @@ class SupabaseDB:
                        timeout=30)
         return bool(self._check(r))
 
+    def artist_crawled_at(self, artist_id: int) -> str | None:
+        """Sanatçının en son ne zaman tarandığı (ISO zaman), hiç taranmadıysa None."""
+        r = self.s.get(f"{self.base}/artist_graph", timeout=30,
+                       params={"artist_id": f"eq.{artist_id}", "select": "crawled_at"})
+        rows = self._check(r) or []
+        return rows[0].get("crawled_at") if rows else None
+
     def mark_artist_crawled(self, artist_id: int, name: str, related_ids: list[int]) -> None:
         r = self.s.post(f"{self.base}/artist_graph", params={"on_conflict": "artist_id"}, timeout=30,
                         json={"artist_id": artist_id, "artist_name": name, "related_ids": related_ids,

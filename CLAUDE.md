@@ -60,7 +60,7 @@ Mobil entegrasyon Aşama 5'te. Şema ve API buna uygun tasarlanır.
 
 Tohum: `scripts/seed.csv` = ~60 Türkçe şarkı (arabesk, pop, rock, rap, türkü, slow, elektronik); eski karışık liste `scripts/seed_karisik.csv`.
 
-**Türkçe mod (migration 0007, Ekim 2026):** Arşiv yabancı şarkıya kaydığı için (Türkçe ~2 bin / yabancı ~180 bin) `app_settings.crawl_mode = 'tr'`. Bu modda yalnızca Türkçe şarkıların sanatçısı taranır (15 benzer sanatçı × 10 şarkı, öncelik 1); kuyruk 2000'in altına inince arşivdeki Türk sanatçıları (turda en çok 80) otomatik taranır — ajan turunda ve 4 saatlik izlemede (`python -m muzikarsiv crawl-tr` elle de çalışır). Eski imajlı işçiler (Oracle / Cloud Run) `pending_count()` "dolu" cevabı aldığı için tarama yapmaz, sadece kuyruğu işler. Geri almak: `update app_settings set value='all' where key='crawl_mode'`.
+**Türkçe mod (migration 0007, Ekim 2026):** Arşiv yabancı şarkıya kaydığı için (Türkçe ~2 bin / yabancı ~180 bin) `app_settings.crawl_mode = 'tr'`. Bu modda yalnızca Türkçe şarkıların sanatçısı taranır (15 benzer sanatçı × 10 şarkı, öncelik 1); kuyruk 2000'in altına inince arşivdeki Türk sanatçıları (turda en çok 80; 31 Ekim'den önce taranmışlar bir kez derin: 20 benzer × 40 şarkı) ve yetmezse Deezer'daki Türkçe çalma listeleri otomatik taranır — ajan turunda ve 4 saatlik izlemede (`python -m muzikarsiv crawl-tr` elle de çalışır). Eski imajlı işçiler (Oracle / Cloud Run) `pending_count()` "dolu" cevabı aldığı için tarama yapmaz, sadece kuyruğu işler. Geri almak: `update app_settings set value='all' where key='crawl_mode'`.
 
 ## 6. Web paneli (Aşama 3)
 Bulanık arama + filtreler (tür, BPM, ton, enerji, kültür), şarkı detayı + "benzer 5 şarkı", istatistik sayfası. Sadece okuma.
