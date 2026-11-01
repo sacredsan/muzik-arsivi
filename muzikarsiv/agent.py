@@ -23,6 +23,14 @@ from .sources import PermanentError
 
 log = logging.getLogger(__name__)
 
+def gh_notice(msg: str) -> None:
+    """GitHub Actions'ta çalışırken kısa notu "annotation" olarak da yazar (kayıtlar okunamasa da görünür)."""
+    import os
+
+    if os.environ.get("GITHUB_ACTIONS"):
+        print(f"::notice::{msg[:900]}", flush=True)
+
+
 UNHEALTHY_FAILS = 5  # bir turda hiç başarı olmadan bu kadar hata -> işçi kendini durdurur
 
 # Türkçe mod (veritabanında app_settings.crawl_mode = 'tr', migration 0007)
@@ -115,6 +123,7 @@ def run_batch(svc: Services, batch_size: int | None = None, budget_sec: float | 
     finally:
         svc.db.finish_run(run_id, stats.processed, stats.failed, stats.skipped, stats.summary())
     log.info("Tur bitti (%.0f sn): %s", time.monotonic() - t0, stats.summary())
+    gh_notice("Tur: " + stats.summary())
     return stats
 
 
@@ -183,14 +192,28 @@ def topup_tr_queue(svc: Services, budget_sec: float = TR_TOPUP_SEC) -> int:
     Hem ajan turunda hem izlemede çağrılır. Dönüş: eklenen iş sayısı."""
     mode, pending = svc.db.crawl_status()
     if mode != "tr" or pending >= TR_TOPUP_BELOW:
+        gh_notice(f"Takviye yok: mod={mode} bekleyen={pending}")
         return 0
-    deadline = time.monotonic() + budget_sec
+    t0 = time.monotonic()
+    deadline = t0 + budget_sec
     target = TR_TOPUP_TARGET
-    added = crawl_tr_artists(svc, max_artists=10_000, deadline=deadline, target=target, playlists=False)
-    if added < target and time.monotonic() < deadline:
-        added += crawl_tr_albums(svc, deadline=deadline, target=target - added)
-    if added < target and time.monotonic() < deadline:
-        added += crawl_tr_playlists(svc, per_run=len(TR_PLAYLIST_QUERIES), deadline=deadline)
+    parts = []
+    a = b = c = 0
+    try:
+        a = crawl_tr_artists(svc, max_artists=10_000, deadline=deadline, target=target, playlists=False)
+        parts.append(f"sanatçı={a}")
+        if a < target and time.monotonic() < deadline:
+            b = crawl_tr_albums(svc, deadline=deadline, target=target - a)
+            parts.append(f"albüm={b}")
+        if a + b < target and time.monotonic() < deadline:
+            c = crawl_tr_playlists(svc, per_run=len(TR_PLAYLIST_QUERIES), deadline=deadline)
+            parts.append(f"liste={c}")
+    except Exception as e:  # noqa: BLE001
+        parts.append(f"HATA {type(e).__name__}: {e}")
+        raise
+    finally:
+        gh_notice(f"Takviye (bekleyen={pending}, {time.monotonic() - t0:.0f} sn): " + " ".join(parts))
+    added = a + b + c
     log.info("Kuyruk takviyesi bitti: %d yeni iş", added)
     return added
 
@@ -243,6 +266,7 @@ def crawl_tr_artists(svc: Services, max_artists: int = TR_TOPUP_ARTISTS, deadlin
         except Exception as e:  # noqa: BLE001  bir sanatçının hatası diğerlerini durdurmasın
             log.warning("Türk sanatçı taraması atlandı (%s): %s", name, e)
         done += 1
+    gh_notice(f"Türk sanatçı listesi: bakılan={checked} taranan={done} eklenen={added}")
     if done:
         log.info("Türkçe tarama: %d sanatçı -> %d yeni iş", done, added)
     if playlists and added < TR_PLAYLIST_TARGET:
