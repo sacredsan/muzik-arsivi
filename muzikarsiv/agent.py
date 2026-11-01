@@ -224,21 +224,30 @@ def crawl_tr_albums(svc: Services, deadline: float, target: int) -> int:
 
     artists = svc.db.tr_artists()
     random.shuffle(artists)
-    added = 0
+    added = tried = albums = tracks = with_preview = 0
+    first_error = ""
     for aid, name in artists[:TR_ALBUM_ARTISTS]:
         if added >= target or time.monotonic() > deadline:
             break
+        tried += 1
         try:
             items = []
             for alb in svc.deezer.artist_albums(aid, limit=25):
+                albums += 1
                 for t in svc.deezer.album_tracks(alb["id"], limit=50):
+                    tracks += 1
                     if t.get("preview"):
+                        with_preview += 1
                         items.append({"deezer_id": t["id"], "track_name": t.get("title"),
                                       "artist_name": (t.get("artist") or {}).get("name") or name})
             if items:
                 added += svc.db.enqueue(items, priority=1, source="album")
         except Exception as e:  # noqa: BLE001
+            if not first_error:
+                first_error = f"{name}: {type(e).__name__}: {e}"
             log.warning("Albüm taraması atlandı (%s): %s", name, e)
+    gh_notice(f"Albüm: sanatçı={tried} albüm={albums} şarkı={tracks} önizlemeli={with_preview} "
+              f"eklenen={added}" + (f" | ilk hata: {first_error}" if first_error else ""))
     log.info("Türk sanatçı albümleri -> %d yeni iş", added)
     return added
 
