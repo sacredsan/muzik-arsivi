@@ -241,7 +241,7 @@ def crawl_tr_albums(svc: Services, deadline: float, target: int) -> int:
                         items.append({"deezer_id": t["id"], "track_name": t.get("title"),
                                       "artist_name": (t.get("artist") or {}).get("name") or name})
             if items:
-                added += svc.db.enqueue(items, priority=1, source="album")
+                added += svc.db.enqueue(items, priority=1, source="crawl")
         except Exception as e:  # noqa: BLE001
             if not first_error:
                 first_error = f"{name}: {type(e).__name__}: {e}"
@@ -315,7 +315,7 @@ def crawl_tr_playlists(svc: Services, per_run: int = TR_PLAYLISTS_PER_RUN, deadl
                           "artist_name": (t.get("artist") or {}).get("name")}
                          for t in svc.deezer.playlist_tracks(pl["id"], limit=100) if t.get("preview")]
                 if items:
-                    added += svc.db.enqueue(items, priority=1, source="playlist")
+                    added += svc.db.enqueue(items, priority=1, source="crawl")
         except Exception as e:  # noqa: BLE001
             log.warning("Çalma listesi taraması atlandı (%s): %s", q, e)
     log.info("Türkçe çalma listeleri (%s) -> %d yeni iş", ", ".join(queries), added)
