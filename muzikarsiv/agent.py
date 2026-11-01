@@ -46,6 +46,9 @@ TR_PLAYLIST_QUERIES = [
     "türkçe 80ler", "yeni türkçe şarkılar", "türkçe karaoke", "türk elektronik", "türkçe caz",
 ]
 TR_PLAYLISTS_PER_RUN = 6
+TR_TOPUP_TARGET = 4000   # kuyruk takviyesinde hedef: bu kadar yeni iş eklenince durulur
+TR_TOPUP_SEC = 360       # takviye en fazla bu kadar saniye sürer (ajan turunda)
+TR_ALBUM_ARTISTS = 400   # albüm taramasında en fazla kaç sanatçıya bakılır
 
 
 @dataclass
@@ -87,7 +90,7 @@ def run_batch(svc: Services, batch_size: int | None = None, budget_sec: float | 
         # Türkçe modda kuyruk azaldıysa arşivdeki Türk sanatçılarından yeni şarkı bulunur
         if crawl_allowed and stats.tr_only and pending < TR_TOPUP_BELOW:
             try:
-                stats.crawled += crawl_tr_artists(svc, max_artists=TR_TOPUP_ARTISTS)
+                stats.crawled += topup_tr_queue(svc)
             except Exception as e:  # noqa: BLE001  tarama hatası turu bozmasın
                 log.warning("Türkçe tarama atlandı: %s", e)
 
@@ -172,21 +175,60 @@ def _process_job(svc: Services, job: dict, stats: RunStats, crawl_allowed: bool)
         log.warning("✗ %s hata (%s): %s", did, status, e)
 
 
-def topup_tr_queue(svc: Services) -> int:
-    """Türkçe moddaysa ve kuyruk azaldıysa arşivdeki Türk sanatçılarından kuyruğa şarkı ekler.
-    (Hem ajan turunda hem 4 saatlik izlemede çağrılır.) Dönüş: eklenen iş sayısı."""
+def topup_tr_queue(svc: Services, budget_sec: float = TR_TOPUP_SEC) -> int:
+    """Türkçe moddaysa ve kuyruk azaldıysa kuyruğu doldurur. Aşamalar (hedefe ya da süreye kadar):
+      1) arşivdeki Türk sanatçıları (yeni olanlar normal, eskiden taranmışlar derin)
+      2) Türk sanatçılarının albümlerindeki tüm şarkılar
+      3) Deezer'daki Türkçe çalma listeleri
+    Hem ajan turunda hem izlemede çağrılır. Dönüş: eklenen iş sayısı."""
     mode, pending = svc.db.crawl_status()
     if mode != "tr" or pending >= TR_TOPUP_BELOW:
         return 0
-    return crawl_tr_artists(svc, max_artists=TR_TOPUP_ARTISTS)
+    deadline = time.monotonic() + budget_sec
+    target = TR_TOPUP_TARGET
+    added = crawl_tr_artists(svc, max_artists=10_000, deadline=deadline, target=target, playlists=False)
+    if added < target and time.monotonic() < deadline:
+        added += crawl_tr_albums(svc, deadline=deadline, target=target - added)
+    if added < target and time.monotonic() < deadline:
+        added += crawl_tr_playlists(svc, per_run=len(TR_PLAYLIST_QUERIES), deadline=deadline)
+    log.info("Kuyruk takviyesi bitti: %d yeni iş", added)
+    return added
 
 
-def crawl_tr_artists(svc: Services, max_artists: int = TR_TOPUP_ARTISTS) -> int:
+def crawl_tr_albums(svc: Services, deadline: float, target: int) -> int:
+    """Rastgele seçilen Türk sanatçılarının albümlerindeki şarkıları kuyruğa ekler (öncelik 1)."""
+    import random
+
+    artists = svc.db.tr_artists()
+    random.shuffle(artists)
+    added = 0
+    for aid, name in artists[:TR_ALBUM_ARTISTS]:
+        if added >= target or time.monotonic() > deadline:
+            break
+        try:
+            items = []
+            for alb in svc.deezer.artist_albums(aid, limit=25):
+                for t in svc.deezer.album_tracks(alb["id"], limit=50):
+                    if t.get("preview"):
+                        items.append({"deezer_id": t["id"], "track_name": t.get("title"),
+                                      "artist_name": (t.get("artist") or {}).get("name") or name})
+            if items:
+                added += svc.db.enqueue(items, priority=1, source="album")
+        except Exception as e:  # noqa: BLE001
+            log.warning("Albüm taraması atlandı (%s): %s", name, e)
+    log.info("Türk sanatçı albümleri -> %d yeni iş", added)
+    return added
+
+
+def crawl_tr_artists(svc: Services, max_artists: int = TR_TOPUP_ARTISTS, deadline: float | None = None,
+                     target: int | None = None, playlists: bool = True) -> int:
     """Arşivdeki Türk sanatçılarından henüz taranmamış olanları tarar (öncelik 1).
     Dönüş: kuyruğa eklenen şarkı sayısı."""
     added = done = checked = 0
     for aid, name in svc.db.tr_artists():
         if done >= max_artists or checked >= max_artists * 20:
+            break
+        if (deadline and time.monotonic() > deadline) or (target and added >= target):
             break
         checked += 1
         last = svc.db.artist_crawled_at(aid)
@@ -203,7 +245,7 @@ def crawl_tr_artists(svc: Services, max_artists: int = TR_TOPUP_ARTISTS) -> int:
         done += 1
     if done:
         log.info("Türkçe tarama: %d sanatçı -> %d yeni iş", done, added)
-    if added < TR_PLAYLIST_TARGET:
+    if playlists and added < TR_PLAYLIST_TARGET:
         added += crawl_tr_playlists(svc)
     return added
 
@@ -224,7 +266,7 @@ def _crawl_artist_force(svc: Services, artist_id: int, name: str, related_limit:
     return added
 
 
-def crawl_tr_playlists(svc: Services, per_run: int = TR_PLAYLISTS_PER_RUN) -> int:
+def crawl_tr_playlists(svc: Services, per_run: int = TR_PLAYLISTS_PER_RUN, deadline: float | None = None) -> int:
     """Deezer'daki Türkçe çalma listelerinden şarkıları kuyruğa ekler (öncelik 1).
     Her turda listeden sıradaki birkaç arama denenir (saate göre döner)."""
     n = len(TR_PLAYLIST_QUERIES)
@@ -232,6 +274,8 @@ def crawl_tr_playlists(svc: Services, per_run: int = TR_PLAYLISTS_PER_RUN) -> in
     queries = [TR_PLAYLIST_QUERIES[(start + i) % n] for i in range(per_run)]
     added = 0
     for q in queries:
+        if deadline and time.monotonic() > deadline:
+            break
         try:
             for pl in svc.deezer.search_playlists(q, limit=4):
                 items = [{"deezer_id": t["id"], "track_name": t.get("title"),

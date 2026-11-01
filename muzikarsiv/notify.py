@@ -151,7 +151,7 @@ def run_notify(cfg, report: bool) -> int:
         from .agent import topup_tr_queue
         from .pipeline import Services
 
-        added = topup_tr_queue(Services.build(cfg))
+        added = topup_tr_queue(Services.build(cfg), budget_sec=150)   # izlemenin 5 dk sınırı var
         if added:
             print(f"Türkçe tarama: kuyruğa {added} yeni iş eklendi.")
     except Exception as e:  # noqa: BLE001  izleme bundan etkilenmesin

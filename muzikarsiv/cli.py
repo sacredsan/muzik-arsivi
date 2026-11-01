@@ -179,10 +179,11 @@ def cmd_run(args, cfg) -> int:
 
 
 def cmd_crawl_tr(args, cfg) -> int:
-    from .agent import crawl_tr_artists
+    from .agent import crawl_tr_artists, topup_tr_queue
     from .pipeline import Services
 
-    n = crawl_tr_artists(Services.build(cfg), max_artists=args.limit)
+    svc = Services.build(cfg)
+    n = topup_tr_queue(svc) if args.full else crawl_tr_artists(svc, max_artists=args.limit)
     print(f"Kuyruğa eklenen yeni Türkçe iş: {n}")
     return 0
 
@@ -221,6 +222,7 @@ def main(argv=None) -> int:
     r.add_argument("--sleep", type=int, default=300, help="sürekli modda boş kalınca bekleme, saniye")
     ct = sub.add_parser("crawl-tr", help="arşivdeki Türk sanatçılarını tarayıp kuyruğa şarkı ekle")
     ct.add_argument("--limit", type=int, default=60, help="en fazla kaç sanatçı")
+    ct.add_argument("--full", action="store_true", help="tam takviye: sanatçılar + albümler + çalma listeleri")
     n = sub.add_parser("notify", help="Telegram bildirimi: sorun varsa alarm, --report ile günlük özet")
     n.add_argument("--report", action="store_true", help="durum ne olursa olsun özet gönder")
 

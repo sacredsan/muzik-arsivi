@@ -64,6 +64,12 @@ class DeezerClient:
     def artist_top(self, artist_id: int, limit: int = 10) -> list[dict]:
         return self._get(f"artist/{artist_id}/top", {"limit": limit}).get("data", [])
 
+    def artist_albums(self, artist_id: int, limit: int = 25) -> list[dict]:
+        return self._get(f"artist/{artist_id}/albums", {"limit": limit}).get("data", [])
+
+    def album_tracks(self, album_id: int, limit: int = 50) -> list[dict]:
+        return self._get(f"album/{album_id}/tracks", {"limit": limit}).get("data", [])
+
     def search_playlists(self, query: str, limit: int = 5) -> list[dict]:
         return self._get("search/playlist", {"q": query, "limit": limit}).get("data", [])
 
