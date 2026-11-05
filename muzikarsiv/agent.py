@@ -256,8 +256,12 @@ def crawl_tr_artists(svc: Services, max_artists: int = TR_TOPUP_ARTISTS, deadlin
                      target: int | None = None, playlists: bool = True) -> int:
     """Arşivdeki Türk sanatçılarından henüz taranmamış olanları tarar (öncelik 1).
     Dönüş: kuyruğa eklenen şarkı sayısı."""
+    t0 = time.monotonic()
+    gh_notice("Sanatçı listesi okunuyor")
     artists = svc.db.tr_artists()
+    gh_notice(f"Sanatçı listesi: {len(artists)} sanatçı ({time.monotonic() - t0:.0f} sn)")
     crawled = svc.db.crawled_at_many([a for a, _ in artists])
+    gh_notice(f"Tarama durumu okundu: {len(crawled)} kayıt ({time.monotonic() - t0:.0f} sn)")
     # Önce hiç taranmamış sanatçılar (normal tarama), sonra eskiden az şarkıyla taranmışlar (derin)
     fresh = [(a, n) for a, n in artists if a not in crawled]
     old = [(a, n) for a, n in artists if a in crawled and crawled[a] < TR_DEEP_SINCE]
@@ -269,11 +273,14 @@ def crawl_tr_artists(svc: Services, max_artists: int = TR_TOPUP_ARTISTS, deadlin
         if (deadline and time.monotonic() > deadline) or (target and added >= target):
             break
         related, top = (TR_RELATED, TR_TOP) if aid not in crawled else (TR_DEEP_RELATED, TR_DEEP_TOP)
+        ta = time.monotonic()
         try:
             added += _crawl_artist_force(svc, aid, name, related, top)
         except Exception as e:  # noqa: BLE001  bir sanatçının hatası diğerlerini durdurmasın
             log.warning("Türk sanatçı taraması atlandı (%s): %s", name, e)
         done += 1
+        if done <= 3 or done % 25 == 0 or time.monotonic() - ta > 60:
+            gh_notice(f"Sanatçı {done}: {name} {time.monotonic() - ta:.0f} sn, toplam eklenen={added}")
     gh_notice(f"Türk sanatçı listesi: toplam={checked} taranmamış={len(fresh)} derin_bekleyen={len(old)} "
               f"taranan={done} eklenen={added}")
     if done:
