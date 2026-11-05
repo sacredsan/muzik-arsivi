@@ -86,18 +86,37 @@ class SupabaseDB:
         except SupabaseError:
             return "all", self.pending_count()
 
-    def tr_artists(self, limit: int = 5000) -> list[tuple[int, str]]:
-        """Arşivdeki Türk sanatçıları (en popüler şarkısı olan önce), tekrarsız."""
-        r = self.s.get(f"{self.base}/songs", timeout=60,
-                       params={"select": "artist_id,artist_name", "cultural_context": "eq.tr",
-                               "artist_id": "not.is.null", "order": "deezer_rank.desc.nullslast",
-                               "limit": str(limit)})
+    def tr_artists(self, max_rows: int = 80_000) -> list[tuple[int, str]]:
+        """Arşivdeki Türk sanatçıları (en popüler şarkısı olan önce), tekrarsız.
+        Supabase bir istekte en fazla 1000 satır verdiği için sayfa sayfa okunur."""
         seen, out = set(), []
-        for x in self._check(r) or []:
-            aid = x.get("artist_id")
-            if aid and aid not in seen:
-                seen.add(aid)
-                out.append((aid, x.get("artist_name") or ""))
+        page = 1000
+        for offset in range(0, max_rows, page):
+            r = self.s.get(f"{self.base}/songs", timeout=60,
+                           params={"select": "artist_id,artist_name", "cultural_context": "eq.tr",
+                                   "artist_id": "not.is.null",
+                                   "order": "deezer_rank.desc.nullslast,deezer_id.asc",
+                                   "limit": str(page), "offset": str(offset)})
+            rows = self._check(r) or []
+            for x in rows:
+                aid = x.get("artist_id")
+                if aid and aid not in seen:
+                    seen.add(aid)
+                    out.append((aid, x.get("artist_name") or ""))
+            if len(rows) < page:
+                break
+        return out
+
+    def crawled_at_many(self, artist_ids: list[int]) -> dict[int, str]:
+        """Verilen sanatçıların en son taranma zamanı (taranmamışlar sözlükte yok). 200'erli sorgular."""
+        out: dict[int, str] = {}
+        for i in range(0, len(artist_ids), 200):
+            chunk = artist_ids[i:i + 200]
+            r = self.s.get(f"{self.base}/artist_graph", timeout=60,
+                           params={"select": "artist_id,crawled_at",
+                                   "artist_id": f"in.({','.join(str(x) for x in chunk)})"})
+            for x in self._check(r) or []:
+                out[x["artist_id"]] = x.get("crawled_at") or ""
         return out
 
     # ---- sanatçı grafiği

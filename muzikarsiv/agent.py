@@ -256,26 +256,26 @@ def crawl_tr_artists(svc: Services, max_artists: int = TR_TOPUP_ARTISTS, deadlin
                      target: int | None = None, playlists: bool = True) -> int:
     """Arşivdeki Türk sanatçılarından henüz taranmamış olanları tarar (öncelik 1).
     Dönüş: kuyruğa eklenen şarkı sayısı."""
-    added = done = checked = 0
-    for aid, name in svc.db.tr_artists():
-        if done >= max_artists or checked >= max_artists * 20:
+    artists = svc.db.tr_artists()
+    crawled = svc.db.crawled_at_many([a for a, _ in artists])
+    # Önce hiç taranmamış sanatçılar (normal tarama), sonra eskiden az şarkıyla taranmışlar (derin)
+    fresh = [(a, n) for a, n in artists if a not in crawled]
+    old = [(a, n) for a, n in artists if a in crawled and crawled[a] < TR_DEEP_SINCE]
+    checked = len(artists)
+    added = done = 0
+    for aid, name in fresh + old:
+        if done >= max_artists:
             break
         if (deadline and time.monotonic() > deadline) or (target and added >= target):
             break
-        checked += 1
-        last = svc.db.artist_crawled_at(aid)
-        if last and last >= TR_DEEP_SINCE:
-            continue   # yakın zamanda derin tarandı
-        # Hiç taranmadıysa normal, eskiden (az şarkıyla) tarandıysa derin tarama
-        related, top = (TR_RELATED, TR_TOP) if not last else (TR_DEEP_RELATED, TR_DEEP_TOP)
+        related, top = (TR_RELATED, TR_TOP) if aid not in crawled else (TR_DEEP_RELATED, TR_DEEP_TOP)
         try:
-            # crawl_artist zaten taranmış sanatçıyı atladığı için kaydı önce yenilemek yerine
-            # doğrudan derin tarama yapılır
             added += _crawl_artist_force(svc, aid, name, related, top)
         except Exception as e:  # noqa: BLE001  bir sanatçının hatası diğerlerini durdurmasın
             log.warning("Türk sanatçı taraması atlandı (%s): %s", name, e)
         done += 1
-    gh_notice(f"Türk sanatçı listesi: bakılan={checked} taranan={done} eklenen={added}")
+    gh_notice(f"Türk sanatçı listesi: toplam={checked} taranmamış={len(fresh)} derin_bekleyen={len(old)} "
+              f"taranan={done} eklenen={added}")
     if done:
         log.info("Türkçe tarama: %d sanatçı -> %d yeni iş", done, added)
     if playlists and added < TR_PLAYLIST_TARGET:
