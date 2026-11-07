@@ -6,7 +6,7 @@ import os
 import tempfile
 import requests
 
-from ..ratelimit import CircuitBreaker, RetryableError, TokenBucket, get_json
+from ..ratelimit import CircuitBreaker, RateLimited, RetryableError, TokenBucket, get_json
 from . import PermanentError
 
 BASE = "https://api.deezer.com"
@@ -27,8 +27,14 @@ class DeezerClient:
         self._genre_cache: dict[int, str | None] = {}
 
     def _get(self, path: str, params=None) -> dict:
-        data = get_json(self.session, f"{BASE}/{path}", params=params, bucket=self.bucket,
-                        breaker=self.breaker, name="deezer", quota_check=_is_quota_error)
+        try:
+            data = get_json(self.session, f"{BASE}/{path}", params=params, bucket=self.bucket,
+                            breaker=self.breaker, name="deezer", quota_check=_is_quota_error)
+        except requests.HTTPError as e:
+            if e.response is not None and e.response.status_code == 403:
+                # Deezer'da 403 = bu IP geçici olarak engellendi (şarkının suçu değil)
+                raise RateLimited(f"Deezer bu sunucuyu geçici olarak engelledi (403) — {path}") from e
+            raise
         if isinstance(data, dict) and "error" in data:
             err = data["error"]
             raise PermanentError(f"Deezer: {err.get('message')} (kod {err.get('code')}) — {path}")
@@ -88,6 +94,8 @@ class DeezerClient:
             r = self.session.get(preview_url, timeout=30)
         except (requests.ConnectionError, requests.Timeout) as e:
             raise RetryableError(f"önizleme indirilemedi: {e}") from e
+        if r.status_code == 429:
+            raise RateLimited("Deezer önizleme sunucusu yavaşlamamızı istiyor (429)")
         if r.status_code == 403:
             raise RetryableError("önizleme bağlantısının süresi dolmuş (403)")
         if r.status_code != 200 or len(r.content) < 10_000:

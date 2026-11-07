@@ -39,6 +39,11 @@ class CircuitOpen(RuntimeError):
     """Servis üst üste hata veriyor; bir süre istek atılmıyor."""
 
 
+class RateLimited(CircuitOpen):
+    """Servis bu IP'yi geçici olarak engelledi / yavaşlattı (ör. Deezer 403 veya 429).
+    Şarkıda sorun yok: iş deneme hakkı yemeden iade edilir, işçi uzun süre dinlenir."""
+
+
 class CircuitBreaker:
     def __init__(self, threshold: int = 5, cooldown: float = 120):
         self.threshold, self.cooldown = threshold, cooldown

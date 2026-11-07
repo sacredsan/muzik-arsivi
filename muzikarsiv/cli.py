@@ -164,18 +164,35 @@ def cmd_run(args, cfg) -> int:
     # Bağlantılar TEK sefer kurulur ve hep aynısı kullanılır (her turda yenisini açmak
     # sürekli modda dosya tanıtıcılarını tüketiyordu: "Too many open files").
     svc = Services.build(cfg)
+    block_wait = BLOCK_WAIT_MIN
     while True:
+        rate_limited = False
         try:
             stats = run_batch(svc, batch_size=args.batch, budget_sec=args.budget,
                               crawl=not args.no_crawl)
+            rate_limited = stats.rate_limited
             # Hiç başarı yoksa (boş kuyruk ya da hep hata) dinlen: arızalı işçi kuyruğu yakmasın.
             idle = stats.processed == 0
         except Exception as e:  # noqa: BLE001
             log.error("Tur hatası (döngü devam ediyor): %s", e)
             idle = True
+        if rate_limited:
+            # Deezer bu sunucuyu engelledi: uzun dinlen, her seferinde biraz daha uzun (en çok 2 saat)
+            log.warning("Deezer engeli; %d dk dinleniliyor", block_wait // 60)
+            time.sleep(block_wait)
+            block_wait = min(block_wait * 2, BLOCK_WAIT_MAX)
+            continue
+        block_wait = BLOCK_WAIT_MIN
         if idle:
             log.info("Bu turda başarılı iş yok; %d sn bekleniyor", args.sleep)
             time.sleep(args.sleep)
+        else:
+            time.sleep(LOOP_PAUSE)  # turlar arası kısa nefes: Deezer'ı aralıksız yormayalım
+
+
+LOOP_PAUSE = 60            # sürekli modda iki tur arası (sn)
+BLOCK_WAIT_MIN = 20 * 60   # Deezer engelinde ilk dinlenme (sn)
+BLOCK_WAIT_MAX = 120 * 60  # en uzun dinlenme (sn)
 
 
 def cmd_crawl_tr(args, cfg) -> int:

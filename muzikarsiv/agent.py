@@ -18,7 +18,7 @@ from dataclasses import dataclass, field
 
 from . import ANALYSIS_VERSION
 from .pipeline import Services, crawl_artist, find_track, process_track
-from .ratelimit import CircuitOpen
+from .ratelimit import CircuitOpen, RateLimited
 from .sources import PermanentError
 
 log = logging.getLogger(__name__)
@@ -68,6 +68,7 @@ class RunStats:
     tr_only: bool = False
     released: int = 0
     reanalyzed: int = 0
+    rate_limited: bool = False
     errors: list[str] = field(default_factory=list)
 
     def summary(self) -> str:
@@ -118,8 +119,16 @@ def run_batch(svc: Services, batch_size: int | None = None, budget_sec: float | 
                 log.error("İşçi sağlıksız görünüyor (%d art arda hata); %d iş iade edildi",
                           stats.failed, len(rest))
                 break
+            if stats.rate_limited:
+                # Deezer bizi engelledi: kalan işleri hemen iade et, diğer işçiler alsın
+                rest = [j["id"] for j in jobs[i:]]
+                stats.released += svc.db.release_jobs(rest)
+                stats.errors.append(f"Deezer engeli: {len(rest)} iş iade, işçi dinlenecek")
+                log.warning("Deezer engeli: %d iş iade edildi, tur bitiriliyor", len(rest))
+                break
             _process_job(svc, job, stats, crawl_allowed)
-        _reanalyze_outdated(svc, stats, t0, budget_sec)
+        if not stats.rate_limited:
+            _reanalyze_outdated(svc, stats, t0, budget_sec)
     finally:
         svc.db.finish_run(run_id, stats.processed, stats.failed, stats.skipped, stats.summary())
     log.info("Tur bitti (%.0f sn): %s", time.monotonic() - t0, stats.summary())
@@ -131,7 +140,12 @@ def _reanalyze_outdated(svc: Services, stats: RunStats, t0: float, budget_sec: f
     """Analiz yöntemi geliştikçe eski kayıtları her turda birkaçar birkaçar yeniler."""
     if time.monotonic() - t0 > budget_sec * 0.8:
         return
-    for did in svc.db.outdated_songs(ANALYSIS_VERSION, limit):
+    try:
+        outdated = svc.db.outdated_songs(ANALYSIS_VERSION, limit)
+    except Exception as e:  # noqa: BLE001  ör. arşiv büyüdü, sorgu zaman aşımı: turu bozmasın
+        log.warning("Eski sürüm kontrolü atlandı: %s", e)
+        return
+    for did in outdated:
         if time.monotonic() - t0 > budget_sec:
             break
         try:
@@ -172,6 +186,11 @@ def _process_job(svc: Services, job: dict, stats: RunStats, crawl_allowed: bool)
         svc.db.fail_job(jid, str(e), permanent=True)
         stats.skipped += 1
         log.info("– %s atlandı: %s", did, e)
+    except RateLimited as e:
+        svc.db.release_jobs([jid])
+        stats.released += 1
+        stats.rate_limited = True
+        log.warning("↺ %s iade (Deezer engeli): %s", did, e)
     except CircuitOpen as e:
         # servis geçici olarak kapalı: işi deneme hakkı yemeden iade et
         svc.db.release_jobs([jid])

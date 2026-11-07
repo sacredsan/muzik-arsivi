@@ -17,7 +17,7 @@ from muzikarsiv.config import load_config  # noqa: E402
 from muzikarsiv.culture import decide_culture  # noqa: E402
 from muzikarsiv.normalize import norm, norm_artist  # noqa: E402
 from muzikarsiv.pipeline import Services, process_track  # noqa: E402
-from muzikarsiv.ratelimit import TokenBucket  # noqa: E402
+from muzikarsiv.ratelimit import RateLimited, TokenBucket  # noqa: E402
 from muzikarsiv.sources.musicbrainz import MBInfo  # noqa: E402
 from muzikarsiv.sources.tags import MusicBrainzTags, clean_tags, split_tags  # noqa: E402
 
@@ -224,6 +224,9 @@ class TestAgent(unittest.TestCase):
             def pending_count(self):
                 return pending
 
+            def crawl_status(self):
+                return "all", pending
+
             def outdated_songs(self, version, limit):
                 return []
 
@@ -264,6 +267,8 @@ class TestAgent(unittest.TestCase):
                 raise PermanentError("önizleme yok")
             if kind == "boom":
                 raise ValueError("ses çözülemedi")
+            if kind == "block":
+                raise RateLimited("Deezer 429")
             return {"status": "saved", "row": {"artist_name": "A", "track_name": "T", "bpm": 120,
                                                "camelot": "8A", "key_scale": "minor", "energy": .5,
                                                "danceability": .5, "cultural_context": "tr",
@@ -288,6 +293,16 @@ class TestAgent(unittest.TestCase):
         # tarama: sanatçı 50 + benzer 900, önizlemesi olmayanlar eklenmez
         self.assertEqual(sorted(i["deezer_id"] for i in svc.db.enqueued), [500, 9000])
         self.assertEqual(svc.db.marked, [(50, (900,))])
+
+    def test_deezer_block_releases_rest(self):
+        # Deezer engelinde: o iş ve kalanlar deneme hakkı yemeden iade, tur biter
+        agent, svc = self._svc({0: "ok", 1: "block", 2: "ok", 3: "ok"})
+        st = agent.run_batch(svc, batch_size=10, budget_sec=60)
+        self.assertTrue(st.rate_limited)
+        self.assertEqual((st.processed, st.failed), (1, 0))
+        self.assertIn(("release", (1,)), svc.db.log)
+        self.assertIn(("release", (2, 3)), svc.db.log)
+        self.assertFalse(any(x[0] == "fail" for x in svc.db.log))
 
     def test_budget_releases_rest(self):
         agent, svc = self._svc({0: "ok", 1: "ok", 2: "ok"})
