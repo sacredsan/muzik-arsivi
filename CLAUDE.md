@@ -77,6 +77,7 @@ Bulanık arama + filtreler (tür, BPM, ton, enerji, kültür), şarkı detayı +
 - Aynı Docker imajı Cloud Run Jobs + Cloud Scheduler ile yedek işçi.
 - Opsiyonel Oracle Free VM'de sürekli döngü.
 - Hepsi aynı kuyruk; her işçiye benzersiz `WORKER_NAME`.
+- **Deezer engeli (Kasım 2026):** sürekli çalışan Oracle, Deezer'dan 403 (API) / 429 (önizleme) alıyordu. Bunlar `RateLimited`: iş deneme hakkı yemeden iade, tur biter, sürekli modda 20 dk → en çok 2 sa dinlenme; turlar arası 60 sn ara. Oracle'da kod güncellemesi = `oracle_kurulum.sh`'i tekrar çalıştırmak.
 - Supabase ücretsiz plan: 500 MB, 7 gün hareketsizlikte duraklama. Satır başı ~2 KB → ~200 bin şarkı. %80'e gelince uyar.
 
 ## 8. İzleme
